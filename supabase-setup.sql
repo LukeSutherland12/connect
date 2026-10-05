@@ -1,10 +1,19 @@
 -- Run once in Supabase: SQL Editor -> New query -> paste -> Run.
-create table if not exists public.app_state (
-  user_id uuid primary key references auth.users (id) on delete cascade,
+-- One shared workspace for the whole company, plus site photos.
+create table if not exists public.workspace (
+  id text primary key,
   data jsonb not null default '{}'::jsonb,
   updated_at timestamptz not null default now()
 );
-alter table public.app_state enable row level security;
-create policy "own row read"   on public.app_state for select using (auth.uid() = user_id);
-create policy "own row insert" on public.app_state for insert with check (auth.uid() = user_id);
-create policy "own row update" on public.app_state for update using (auth.uid() = user_id);
+create table if not exists public.photos (
+  id text primary key,
+  data text not null,
+  created_at timestamptz not null default now()
+);
+alter table public.workspace enable row level security;
+alter table public.photos enable row level security;
+create policy "signed-in read"   on public.workspace for select to authenticated using (true);
+create policy "signed-in insert" on public.workspace for insert to authenticated with check (true);
+create policy "signed-in update" on public.workspace for update to authenticated using (true);
+create policy "signed-in read"   on public.photos for select to authenticated using (true);
+create policy "signed-in insert" on public.photos for insert to authenticated with check (true);

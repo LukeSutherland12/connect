@@ -1,19 +1,27 @@
 (function () {
   'use strict';
 
-  // ---------- Content ----------
-  const SERVICES = ['Transport', 'Crane', 'Consent', 'Site prep', 'Foundations', 'Power', 'Drainage', 'Inspections'];
-  const NEXT = {
-    Transport: 'book crane for the same day', Crane: 'confirm transport slot', Consent: 'geotech report',
-    'Site prep': 'piles once consent issues', Foundations: 'pile inspection', Power: 'lines company application',
-    Drainage: 'drainlayer + council inspection', Inspections: 'CCC application'
-  };
-  const ICON = { Transport: 'MOVE', Crane: 'CRN', Consent: 'BC', 'Site prep': 'SITE', Foundations: 'PILE', Power: 'PWR', Drainage: 'DRN', Inspections: 'CCC' };
-  const TITLE = {
-    Transport: 'Move the house', Crane: 'Book a crane', Consent: 'Building consent', 'Site prep': 'Site prep',
-    Foundations: 'Foundations', Power: 'Power connection', Drainage: 'Drainage + septic', Inspections: 'Inspections + CCC'
-  };
-  const STAGES = [
+  // =====================================================================
+  // Content
+  // =====================================================================
+  const SERVICES = [
+    { k: 'Consent', title: 'Building consent', stage: 0, icon: 'BC' },
+    { k: 'Site prep', title: 'Site prep', stage: 0, icon: 'SITE' },
+    { k: 'Foundations', title: 'Foundations + piles', stage: 0, icon: 'PILE' },
+    { k: 'Transport', title: 'Transport the house', stage: 1, icon: 'MOVE' },
+    { k: 'Crane', title: 'Crane + set-down', stage: 1, icon: 'CRN' },
+    { k: 'Roofing', title: 'Roofing', stage: 1, icon: 'ROOF' },
+    { k: 'Power', title: 'Power connection', stage: 2, icon: 'PWR' },
+    { k: 'Plumbing', title: 'Plumbing', stage: 2, icon: 'PLB' },
+    { k: 'Drainage', title: 'Drainage + septic', stage: 2, icon: 'DRN' },
+    { k: 'Flooring', title: 'Flooring install', stage: 3, icon: 'FLR' },
+    { k: 'Painting', title: 'Painting', stage: 3, icon: 'PNT' },
+    { k: 'Decks', title: 'Decks + steps', stage: 3, icon: 'DECK' },
+    { k: 'Inspections', title: 'Final inspection + CCC', stage: 3, icon: 'CCC' }
+  ];
+  const SVC = Object.fromEntries(SERVICES.map((s) => [s.k, s]));
+  const STAGES = ['Foundations & site prep', 'Delivery & set-down', 'Services connection', 'Finishing & handover'];
+  const MAT = [
     ['Floor', 'Bearers, joists, flooring, fixings'],
     ['Frame', 'Wall frames, trusses, bracing'],
     ['Roof + wrap', 'Roofing, flashings, building wrap'],
@@ -21,558 +29,1127 @@
     ['Linings', 'Insulation, GIB, stopping'],
     ['Fit-out', 'Kitchen, bathroom, trims, paint']
   ];
-  const LIVE_MINUTES = 10; // how long a test transport/crane booking takes to "arrive"
+  const WINDOWS = ['7–9am', '9–12pm', '12–3pm', '3–5pm'];
+  const ROLES = ['Customer', 'Builder', 'Contractor', 'Supplier', 'Consent manager', 'Connect team'];
+  const COLORS = ['#2563EB', '#EA580C', '#059669', '#9333EA', '#DB2777', '#0891B2', '#B45309', '#DC2626', '#4F46E5', '#4D7C0F', '#0F766E', '#BE185D', '#7C3AED', '#C2410C'];
 
-  function optionsFor(service) {
-    const d1 = dayLabel(3), d0 = dayLabel(1);
-    if (service === 'Transport') return [
-      { name: 'Standard move', when: d1 + ' · depart 5:00am', detail: 'Truck, permit, 1 pilot' },
-      { name: 'Move + crane', when: d1 + ' · on site 7:30am', detail: 'Crane waiting on arrival, placed on piles' },
-      { name: 'Priority', when: 'Earliest slot: ' + d0, detail: 'Next available truck and crane' }
+  function optionsFor(k) {
+    if (k === 'Transport') return [
+      ['Standard move', 'Truck, permit, 1 pilot · depart 5:00am'],
+      ['Move + crane', 'Crane waiting on arrival, placed on piles'],
+      ['Priority', 'Next available truck and crane']
     ];
-    if (service === 'Crane') return [
-      { name: 'Crane only', when: d1 + ' · on site 7:30am', detail: 'Placed on piles, operator + dogman' },
-      { name: 'Priority crane', when: 'Earliest slot: ' + d0, detail: 'Next available crane' }
-    ];
-    if (service === 'Consent') return [
-      { name: 'Full consent handling', when: 'Starts today', detail: 'We lodge, answer council RFIs and chase it' },
-      { name: 'Lodge only', when: 'Starts today', detail: 'We lodge, you handle council questions' }
-    ];
-    return [
-      { name: 'Standard', when: 'Next available · ' + d1, detail: 'Booked and confirmed by us' },
-      { name: 'Priority', when: 'Earliest slot · ' + d0, detail: 'Next available crew' }
-    ];
+    if (k === 'Crane') return [['Crane + set-down', 'Placed on piles, operator + dogman'], ['Priority crane', 'Next available crane']];
+    if (k === 'Consent') return [['Full consent handling', 'We lodge, answer council and chase it'], ['Lodge only', 'We lodge, you handle council questions']];
+    return [['Standard', 'Next available crew'], ['Priority', 'Earliest possible slot']];
   }
 
-  // ---------- Helpers ----------
+  // =====================================================================
+  // Helpers
+  // =====================================================================
   const $app = document.getElementById('app');
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  function dayLabel(offset) {
-    const d = new Date(); d.setDate(d.getDate() + offset);
-    return d.toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric', month: 'short' });
-  }
-  const fmtDate = (ts) => new Date(ts).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' });
-  const fmtTime = (ts) => new Date(ts).toLocaleTimeString('en-NZ', { hour: 'numeric', minute: '2-digit' });
-  const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
+  const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2)).slice(0, 18);
+  const pad = (n) => String(n).padStart(2, '0');
+  const iso = (d) => { d = d || new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
+  const today = () => iso();
+  const addDays = (s, n) => { const d = s ? new Date(s + 'T00:00') : new Date(); d.setDate(d.getDate() + n); return iso(d); };
+  const daysUntil = (s) => Math.round((new Date(s + 'T00:00') - new Date(today() + 'T00:00')) / 86400000);
+  const mondayOf = (d) => { d = d ? new Date(d) : new Date(); const k = (d.getDay() + 6) % 7; d.setDate(d.getDate() - k); return iso(d); };
+  const fmtD = (s) => s ? new Date(s + 'T00:00').toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric', month: 'short' }) : '';
+  const fmtTs = (ts) => new Date(ts).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' });
+  const nzd = new Intl.NumberFormat('en-NZ', { style: 'currency', currency: 'NZD', maximumFractionDigits: 0 });
+  const $ = (n) => nzd.format(Math.round(Number(n) || 0));
+  const num = (v) => { const n = parseFloat(String(v || '').replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n; };
+  const initials = (n) => String(n || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
+  const first = (n) => String(n || '').split(/\s+/)[0];
   const store = {
     get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
-    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage blocked */ } },
-    del(k) { try { localStorage.removeItem(k); } catch (e) { /* storage blocked */ } }
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
+    del(k) { try { localStorage.removeItem(k); } catch (e) { /* blocked */ } }
   };
-  async function sha256(text) {
-    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-    return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  async function sha256(t) {
+    const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t));
+    return Array.from(new Uint8Array(b)).map((x) => x.toString(16).padStart(2, '0')).join('');
   }
-  const svg = {
-    back: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>',
-    menu: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.4" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
-    chev: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="margin-left:auto;flex-shrink:0"><path d="M6 9l6 6 6-6"/></svg>',
-    right: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>',
-    search: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
-    box: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" stroke-linejoin="round"><path d="M3 8l9-5 9 5-9 5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>',
-    clock: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
-    truck: '<svg width="34" height="22" viewBox="0 0 34 22" fill="none" stroke="#111" stroke-width="1.8" stroke-linejoin="round"><path d="M1 4h22v12H1z"/><path d="M23 8h6l4 4v4h-10"/><circle cx="7" cy="18" r="2.5"/><circle cx="27" cy="18" r="2.5"/></svg>',
-    tick: (c) => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="' + (c || '#15803D') + '" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg>',
-    upload: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M6 10l6-6 6 6"/><path d="M4 20h16"/></svg>',
-    phone: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" stroke-linejoin="round"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 005 5L15 13l5 2v4a1 1 0 01-1 1A16 16 0 014 5a1 1 0 011-1z"/></svg>',
-    share: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v7h16v-7M12 3v12M7 8l5-5 5 5"/></svg>',
-    msg: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" stroke-linejoin="round"><path d="M4 5h16v11H9l-5 4z"/></svg>',
-    card: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg>'
-  };
+  function toast(msg) {
+    document.querySelectorAll('.toast').forEach((t) => t.remove());
+    const t = document.createElement('div');
+    t.className = 'toast'; t.setAttribute('role', 'status'); t.textContent = msg;
+    document.body.appendChild(t); setTimeout(() => t.remove(), 3000);
+  }
 
-  // ---------- Auth + data ----------
+  const I = {
+    home: '<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/>',
+    jobs: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V4h8v3"/>',
+    map: '<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/>',
+    todo: '<path d="M9 6h11M9 12h11M9 18h11"/><path d="M3 6l1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17"/>',
+    people: '<circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.9 3.1-7 7-7s7 3.1 7 7"/><circle cx="17.5" cy="9" r="2.5"/><path d="M17 14c2.8 0 5 2.2 5 5"/>',
+    more: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>',
+    back: '<path d="M15 6l-6 6 6 6"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    check: '<path d="M5 12l5 5 9-10"/>',
+    phone: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 005 5L15 13l5 2v4a1 1 0 01-1 1A16 16 0 014 5a1 1 0 011-1z"/>',
+    mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
+    msg: '<path d="M4 5h16v11H9l-5 4z"/>',
+    camera: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
+    bolt: '<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',
+    upload: '<path d="M12 16V4M6 10l6-6 6 6"/><path d="M4 20h16"/>',
+    truck: '<path d="M1 6h13v10H1z"/><path d="M14 9h4l3 3v4h-7"/><circle cx="5.5" cy="17.5" r="2"/><circle cx="17.5" cy="17.5" r="2"/>',
+    star: '<circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><path d="M5.6 5.6l2.9 2.9M15.5 15.5l2.9 2.9M18.4 5.6l-2.9 2.9M8.5 15.5l-2.9 2.9"/>',
+    copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V4h12"/>',
+    x: '<path d="M6 6l12 12M18 6L6 18"/>'
+  };
+  const ico = (n, size, color, sw) => `<svg width="${size || 20}" height="${size || 20}" viewBox="0 0 24 24" fill="none" stroke="${color || 'currentColor'}" stroke-width="${sw || 2}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]}</svg>`;
+  const lockup = (light) => `<a href="#/" class="lockup${light ? ' light' : ''}" aria-label="Paragon Connect home"><img src="assets/${light ? 'logo.png' : 'logo-white.png'}" alt="Paragon Portables"><span class="rule"></span><span class="word">${ico('star', 15, '#ebbd06')}Connect</span><span class="by">Owned by Paragon Portables</span></a>`;
+
+  // =====================================================================
+  // Auth + storage
+  // =====================================================================
   const cfg = window.APP_CONFIG || {};
-  const sb = (cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && window.supabase)
-    ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null;
+  const sb = (cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && window.supabase) ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY) : null;
+  const SHARED = !!sb;
 
   const Auth = {
-    shared: !!sb,
     async current() {
       if (sb) {
         const { data } = await sb.auth.getSession();
         const u = data.session && data.session.user;
         return u ? { id: u.id, email: u.email, name: (u.user_metadata && u.user_metadata.name) || u.email.split('@')[0] } : null;
       }
-      const email = store.get('nc_session', null);
-      const u = email && store.get('nc_users', {})[email];
+      const email = store.get('cx_session', null);
+      const u = email && store.get('cx_users', {})[email];
       return u ? { id: u.id, email, name: u.name } : null;
     },
     async signUp(name, email, pw) {
       if (sb) {
         const { data, error } = await sb.auth.signUp({ email, password: pw, options: { data: { name } } });
         if (error) throw error;
-        if (!data.session) return { confirm: true };
-        return { ok: true };
+        return data.session ? {} : { confirm: true };
       }
-      const users = store.get('nc_users', {});
-      if (users[email]) throw new Error('An account with that email already exists. Sign in instead.');
+      const users = store.get('cx_users', {});
+      if (users[email]) throw new Error('That email already has an account. Sign in instead.');
       const salt = uid();
       users[email] = { id: uid(), name, salt, hash: await sha256(salt + pw) };
-      store.set('nc_users', users);
-      store.set('nc_session', email);
-      return { ok: true };
+      store.set('cx_users', users); store.set('cx_session', email);
+      return {};
     },
     async signIn(email, pw) {
-      if (sb) {
-        const { error } = await sb.auth.signInWithPassword({ email, password: pw });
-        if (error) throw error;
-        return;
-      }
-      const u = store.get('nc_users', {})[email];
+      if (sb) { const { error } = await sb.auth.signInWithPassword({ email, password: pw }); if (error) throw error; return; }
+      const u = store.get('cx_users', {})[email];
       if (!u || u.hash !== await sha256(u.salt + pw)) throw new Error('Email or password is wrong.');
-      store.set('nc_session', email);
+      store.set('cx_session', email);
     },
-    async signOut() {
-      if (sb) await sb.auth.signOut(); else store.del('nc_session');
-    }
+    async signOut() { if (sb) await sb.auth.signOut(); else store.del('cx_session'); }
   };
 
-  const freshState = () => ({ address: '', stage: 'Site prep', bookings: {}, plans: null, stages: STAGES.map(() => 'later'), deliveries: [] });
-
+  // Workspace: one shared record for the whole company (shared mode), or one per browser (test mode).
+  const WS_KEY = 'cx_workspace';
   const Data = {
-    async load(user) {
+    async load() {
       if (sb) {
-        const { data, error } = await sb.from('app_state').select('data').eq('user_id', user.id).maybeSingle();
-        if (error) console.warn('[NewCompany] load failed', error);
-        return Object.assign(freshState(), (data && data.data) || {});
+        const { data, error } = await sb.from('workspace').select('data').eq('id', 'main').maybeSingle();
+        if (error) console.warn('[Connect] load', error);
+        return (data && data.data) || null;
       }
-      return Object.assign(freshState(), store.get('nc_state_' + user.id, {}));
+      return store.get(WS_KEY, null);
     },
-    async save(user, state) {
+    async save(w) {
       if (sb) {
-        const { error } = await sb.from('app_state').upsert({ user_id: user.id, data: state, updated_at: new Date().toISOString() });
-        if (error) { console.warn('[NewCompany] save failed', error); toast('Could not save. Check your connection.'); }
+        const { error } = await sb.from('workspace').upsert({ id: 'main', data: w, updated_at: new Date().toISOString() });
+        if (error) { console.warn('[Connect] save', error); toast('Could not save. Check your connection.'); }
         return;
       }
-      store.set('nc_state_' + user.id, state);
+      if (!store.set(WS_KEY, w)) toast('This browser is out of storage space.');
     }
   };
 
-  // ---------- App state ----------
+  // Photos live apart from the workspace so it stays small.
+  const Photos = {
+    cache: {},
+    _db: null,
+    db() {
+      if (this._db) return this._db;
+      this._db = new Promise((res, rej) => {
+        const r = indexedDB.open('connect-photos', 1);
+        r.onupgradeneeded = () => r.result.createObjectStore('p');
+        r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+      });
+      return this._db;
+    },
+    async put(id, data) {
+      this.cache[id] = data;
+      if (sb) { const { error } = await sb.from('photos').insert({ id, data }); if (error) throw error; return; }
+      const db = await this.db();
+      await new Promise((res, rej) => { const t = db.transaction('p', 'readwrite'); t.objectStore('p').put(data, id); t.oncomplete = res; t.onerror = () => rej(t.error); });
+    },
+    async get(id) {
+      if (this.cache[id]) return this.cache[id];
+      let v = null;
+      if (sb) { const { data } = await sb.from('photos').select('data').eq('id', id).maybeSingle(); v = data && data.data; }
+      else {
+        const db = await this.db();
+        v = await new Promise((res) => { const r = db.transaction('p').objectStore('p').get(id); r.onsuccess = () => res(r.result); r.onerror = () => res(null); });
+      }
+      if (v) this.cache[id] = v;
+      return v;
+    }
+  };
+  async function compress(file) {
+    const bmp = await createImageBitmap(file);
+    const s = Math.min(1, 1400 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(bmp.width * s); c.height = Math.round(bmp.height * s);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.78);
+  }
+
+  async function geocode(address) {
+    try {
+      const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=nz&q=' + encodeURIComponent(address));
+      const j = await r.json();
+      if (j && j[0]) return { lat: +j[0].lat, lng: +j[0].lon };
+    } catch (e) { console.warn('[Connect] geocode', e); }
+    return null;
+  }
+
+  // =====================================================================
+  // State
+  // =====================================================================
   let user = null;
-  let S = freshState();
-  const ui = { picked: 'Transport', option: 0, query: '', tab: 0, slot: 0, menu: false };
-  let tickTimer = null;
+  let W = null;
+  const ui = { as: null, pick: null, opt: 0, todoFilter: 'all', roleFilter: 'All', q: '', photo: null, jobFilter: 'active', urgent: false, schedule: null };
+  let mapInst = null;
 
-  async function commit() { await Data.save(user, S); render(); }
-  function go(hash) { if (location.hash === hash) render(); else location.hash = hash; }
-  function toast(msg) {
-    const t = document.createElement('div');
-    t.className = 'toast'; t.setAttribute('role', 'status'); t.textContent = msg;
-    $app.appendChild(t); setTimeout(() => t.remove(), 2800);
+  const blankWs = () => ({ v: 2, people: [], jobs: [], createdAt: Date.now() });
+  async function commit(msg) { await Data.save(W); render(); if (msg) toast(msg); }
+  const go = (h) => { if (location.hash === h) render(); else location.hash = h; };
+
+  const person = (id) => W.people.find((p) => p.id === id);
+  const job = (id) => W.jobs.find((j) => j.id === id);
+  const me = () => W.people.find((p) => p.email && user && p.email.toLowerCase() === user.email.toLowerCase());
+  const viewer = () => (ui.as && person(ui.as)) || me();
+  const isTeam = () => { const v = viewer(); return !v || v.role === 'Connect team'; };
+  const teamLead = () => me() || W.people.find((p) => p.role === 'Connect team');
+  const nextColor = () => COLORS[W.people.length % COLORS.length];
+
+  function ensureMe() {
+    if (!me()) W.people.unshift({ id: uid(), name: user.name, role: 'Connect team', company: 'Paragon Connect', phone: '', email: user.email, color: '#475569', notes: '' });
   }
 
-  function serviceStatus(name) {
-    const b = S.bookings[name];
-    if (!b) return { text: 'Not booked', cls: '' };
-    if (name === 'Transport' || name === 'Crane') {
-      const p = progress(b);
-      return p >= 1 ? { text: 'Done', cls: 'done' } : { text: 'Live', cls: 'live' };
+  function involved(j, pid) {
+    if (j.customerId === pid || j.builderId === pid) return true;
+    return Object.values(j.services || {}).some((s) => s.personId === pid);
+  }
+  function visibleJobs() {
+    if (isTeam()) return W.jobs;
+    const v = viewer();
+    return W.jobs.filter((j) => involved(j, v.id));
+  }
+
+  // ---------- job maths ----------
+  function pct(j) {
+    if (!j.scope.length) return 0;
+    return Math.round((j.scope.filter((k) => j.services[k] && j.services[k].status === 'done').length / j.scope.length) * 100);
+  }
+  function stagePct(j, i) {
+    const ks = j.scope.filter((k) => SVC[k].stage === i);
+    if (!ks.length) return null;
+    return Math.round((ks.filter((k) => j.services[k] && j.services[k].status === 'done').length / ks.length) * 100);
+  }
+  function svcState(j, k) {
+    const s = j.services[k];
+    if (!s) return { t: 'To book', c: '' };
+    if (s.status === 'done') return { t: 'Done', c: 'ok' };
+    if (s.date && s.date < today()) return { t: 'Confirm done', c: 'err' };
+    if (s.date && s.date === today()) return { t: 'Today', c: 'mus' };
+    return { t: 'Booked', c: 'dark' };
+  }
+  function nextStep(j) {
+    for (const k of j.scope) {
+      const s = j.services[k];
+      if (!s) return 'Book ' + SVC[k].title.toLowerCase();
+      if (s.status !== 'done') return SVC[k].title + (s.date ? ' · ' + fmtD(s.date) : '');
     }
-    if (name === 'Consent') return consentDay(b) >= 20 ? { text: 'Issued', cls: 'done' } : { text: 'In progress', cls: '' };
-    return { text: 'Booked', cls: '' };
+    return 'Ready for handover';
   }
-  const progress = (b) => Math.min(1, (Date.now() - b.at) / (LIVE_MINUTES * 60000));
-  const consentDay = (b) => Math.min(20, Math.floor((Date.now() - b.at) / 86400000));
+  function money(j) {
+    const ex = j.extras || [];
+    const approved = ex.filter((e) => e.status === 'approved').reduce((a, e) => a + e.amount, 0);
+    const pending = ex.filter((e) => e.status === 'pending').reduce((a, e) => a + e.amount, 0);
+    const total = (j.contract || 0) + approved;
+    const paid = (j.payments || []).reduce((a, p) => a + p.amount, 0);
+    const svcCost = Object.values(j.services).reduce((a, s) => a + (s.cost || 0), 0);
+    const matCost = (j.deliveries || []).reduce((a, d) => a + (d.cost || 0), 0);
+    const costs = svcCost + matCost;
+    const earned = Math.round(total * pct(j) / 100);
+    return { approved, pending, total, paid, owing: total - paid, costs, svcCost, matCost, margin: total - costs, dueNow: Math.max(0, earned - paid), earned };
+  }
 
-  // ---------- Screens ----------
-  const shell = (inner) => (Auth.shared ? '' : '<div class="banner">Test mode · accounts are saved on this device only</div>') + inner;
+  // ---------- automatic to-dos ----------
+  function autoTasks(j) {
+    const out = [];
+    const t = today(); const wk = mondayOf();
+    const lead = teamLead();
+    const cust = person(j.customerId);
+    const add = (key, pid, text, due, kind) => {
+      if (j.done[key]) return;
+      out.push({ key, jobId: j.id, personId: pid || (lead && lead.id), text, due: due || null, kind, overdue: !!(due && due < t) });
+    };
+    const firstUnbooked = j.scope.find((k) => !j.services[k]);
+    if (firstUnbooked) add('book:' + firstUnbooked, lead && lead.id, 'Book ' + SVC[firstUnbooked].title.toLowerCase(), null, 'book');
+    j.scope.forEach((k) => {
+      const s = j.services[k];
+      if (!s || s.status === 'done') return;
+      if (k === 'Consent') add('consent:' + wk, s.personId, 'Chase council on the building consent', null, 'consent');
+      if (s.date && s.date < t) add('confirm:' + k + ':' + s.date, lead && lead.id, 'Confirm ' + SVC[k].title.toLowerCase() + ' is finished', s.date, 'confirm');
+      else if (s.date && daysUntil(s.date) <= 7 && k !== 'Consent') add('onsite:' + k + ':' + s.date, s.personId, SVC[k].title + ' on site ' + fmtD(s.date), s.date, 'onsite');
+    });
+    (j.extras || []).filter((e) => e.status === 'pending').forEach((e) => add('extra:' + e.id, j.customerId, 'Approve extra: ' + e.desc + ' (' + $(e.amount) + ')', null, 'extra'));
+    const m = money(j);
+    if (m.dueNow > 0) add('pay:' + wk + ':' + m.dueNow, j.customerId, 'Pay ' + $(m.dueNow) + ' for work done to date', addDays(wk, 7), 'pay');
+    (j.deliveries || []).filter((d) => d.status === 'scheduled').forEach((d) => {
+      if (d.urgent) add('urgent:' + d.id, lead && lead.id, 'URGENT delivery: ' + d.items, d.date, 'urgent');
+      if (daysUntil(d.date) <= 3) add('recv:' + d.id, j.builderId, 'Receive ' + (d.urgent ? 'urgent' : d.items.toLowerCase()) + ' delivery ' + fmtD(d.date) + ' ' + d.window, d.date, 'deliv');
+    });
+    const lastPhoto = (j.photos || []).reduce((a, p) => Math.max(a, p.at), 0);
+    const started = Object.keys(j.services).length > 0;
+    if (started && pct(j) < 100 && Date.now() - lastPhoto > 7 * 86400000) add('photos:' + wk, j.builderId, 'Upload this week\'s progress photos', null, 'photos');
+    if (!j.plans) add('plans', j.customerId, 'Upload house plans for materials pricing', null, 'plans');
+    const up = (j.updates || []).find((u) => u.weekOf === wk);
+    if (up && !up.sent && cust) add('update:' + wk, lead && lead.id, 'Send weekly update to ' + cust.name, null, 'update');
+    (j.tasks || []).filter((x) => !x.done).forEach((x) => out.push({ key: 'm:' + x.id, manual: x.id, jobId: j.id, personId: x.personId, text: x.text, due: x.due, kind: 'manual', overdue: !!(x.due && x.due < t) }));
+    return out;
+  }
+  function allTasks() {
+    const v = viewer();
+    let list = visibleJobs().flatMap(autoTasks).concat((W.tasks || []).filter((x) => !x.done).map((x) => ({ key: 'g:' + x.id, gmanual: x.id, personId: x.personId, text: x.text, due: x.due, kind: 'manual', overdue: !!(x.due && x.due < today()) })));
+    if (!isTeam()) list = list.filter((x) => x.personId === v.id);
+    return list.sort((a, b) => (b.overdue - a.overdue) || ((a.due || '9') < (b.due || '9') ? -1 : (a.due || '9') > (b.due || '9') ? 1 : 0));
+  }
 
-  function screenWelcome(mode) {
-    const up = mode === 'signup';
-    return shell(`
-      <div class="hero">
-        <div class="logo"><svg width="22" height="22" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" fill="#111"/><rect x="10" y="10" width="4" height="4" fill="#fff"/></svg></div>
-        <h1 style="font-size:34px;line-height:1.05">New Company</h1>
-        <div style="font-size:16px;color:#D4D4D4">They build the home. We handle the site.</div>
+  // ---------- weekly updates ----------
+  function buildUpdate(j) {
+    const cust = person(j.customerId);
+    const m = money(j);
+    const wk = mondayOf();
+    const lastWk = addDays(wk, -7);
+    const doneThisWeek = j.scope.filter((k) => { const s = j.services[k]; return s && s.status === 'done' && s.doneAt && iso(new Date(s.doneAt)) >= lastWk; });
+    const coming = j.scope.filter((k) => { const s = j.services[k]; return s && s.status !== 'done' && s.date && daysUntil(s.date) >= 0 && daysUntil(s.date) <= 14; })
+      .map((k) => '• ' + SVC[k].title + ' · ' + fmtD(j.services[k].date));
+    const dels = (j.deliveries || []).filter((d) => d.status === 'scheduled' && daysUntil(d.date) >= 0 && daysUntil(d.date) <= 14).map((d) => '• ' + d.items + ' delivery · ' + fmtD(d.date) + ' ' + d.window);
+    const needs = autoTasks(j).filter((x) => x.personId === j.customerId).map((x) => '• ' + x.text);
+    const lines = [
+      'Hi ' + (cust ? first(cust.name) : 'there') + ',',
+      '',
+      'Here\'s this week on ' + j.address + '.',
+      '',
+      'PROGRESS: ' + pct(j) + '% complete',
+      STAGES.map((s, i) => { const p = stagePct(j, i); return p == null ? null : '• ' + s + ': ' + p + '%'; }).filter(Boolean).join('\n'),
+      '',
+      'DONE THIS WEEK',
+      doneThisWeek.length ? doneThisWeek.map((k) => '• ' + SVC[k].title).join('\n') : '• Work continuing on the current stage',
+      '',
+      'COMING UP (NEXT 2 WEEKS)',
+      coming.concat(dels).join('\n') || '• We\'re booking the next steps and will confirm dates',
+      '',
+      'WHAT WE NEED FROM YOU',
+      needs.join('\n') || '• Nothing right now',
+      '',
+      'MONEY',
+      '• Contract: ' + $(j.contract) + (m.approved ? '\n• Extras approved: ' + $(m.approved) : '') + (m.pending ? '\n• Extras waiting for you: ' + $(m.pending) : ''),
+      '• Paid so far: ' + $(m.paid),
+      '• Still to pay: ' + $(m.owing),
+      '',
+      (j.photos || []).length ? 'Latest photos are in your Connect page.' : '',
+      'Any questions, just reply.',
+      '',
+      (teamLead() ? teamLead().name : 'The Connect team') + '\nParagon Connect'
+    ];
+    return lines.join('\n').replace(/\n{3,}/g, '\n\n');
+  }
+  function ensureUpdates() {
+    const wk = mondayOf();
+    let changed = false;
+    W.jobs.forEach((j) => {
+      j.updates = j.updates || [];
+      if (pct(j) >= 100 || !j.customerId) return;
+      if (!j.updates.some((u) => u.weekOf === wk)) {
+        j.updates.unshift({ id: uid(), weekOf: wk, at: Date.now(), text: buildUpdate(j), sent: false });
+        changed = true;
+      }
+    });
+    return changed;
+  }
+
+  // =====================================================================
+  // Example data
+  // =====================================================================
+  function loadExamples() {
+    const P = (name, role, company, trades, extra) => {
+      const p = Object.assign({ id: uid(), name, role, company, phone: '021 555 0' + String(100 + W.people.length).slice(-3), email: name.toLowerCase().replace(/[^a-z]+/g, '.').replace(/^\.|\.$/g, '') + '@example.com', color: nextColor(), notes: '', trades: trades || [], example: true }, extra || {});
+      W.people.push(p); return p;
+    };
+    const c1 = P('Aroha Ngata', 'Customer', '');
+    const c2 = P('Tom Harris', 'Customer', '');
+    const c3 = P('Mei Chen', 'Customer', '');
+    const c4 = P('Ravi Patel', 'Customer', '');
+    const b1 = P('Mike Brown', 'Builder', 'Example Builders Ltd');
+    const b2 = P('Sione Taufa', 'Builder', 'Example Homes');
+    const tr = P('Dave Wilson', 'Contractor', 'Example Transport', ['Transport']);
+    const cr = P('Kate Young', 'Contractor', 'Example Cranes', ['Crane']);
+    const cs = P('Jo Morgan', 'Consent manager', 'Example Consents', ['Consent', 'Inspections']);
+    const gw = P('Ben Clark', 'Contractor', 'Example Groundworks', ['Site prep', 'Foundations', 'Decks']);
+    const el = P('Priya Shah', 'Contractor', 'Example Electrical', ['Power']);
+    const pl = P('Liam Scott', 'Contractor', 'Example Plumbing + Drainage', ['Plumbing', 'Drainage']);
+    const rf = P('Hemi Walker', 'Contractor', 'Example Roofing', ['Roofing']);
+    const fl = P('Sarah King', 'Contractor', 'Example Flooring', ['Flooring']);
+    const pt = P('Josh Reid', 'Contractor', 'Example Painters', ['Painting']);
+    P('Carters Rangiora', 'Supplier', 'Materials supplier');
+    const who = { Transport: tr, Crane: cr, Consent: cs, Inspections: cs, 'Site prep': gw, Foundations: gw, Decks: gw, Power: el, Plumbing: pl, Drainage: pl, Roofing: rf, Flooring: fl, Painting: pt };
+    const all = SERVICES.map((s) => s.k);
+    const mk = (name, address, lat, lng, cust, bld, contract, doneUpTo, bookedUpTo, startDaysAgo) => {
+      const j = { id: uid(), name, address, lat, lng, customerId: cust.id, builderId: bld.id, contract, scope: all.slice(), services: {}, deliveries: [], extras: [], payments: [], photos: [], updates: [], tasks: [], done: {}, plans: null, createdAt: Date.now() - startDaysAgo * 86400000, example: true };
+      all.forEach((k, i) => {
+        if (i < doneUpTo) j.services[k] = { status: 'done', option: optionsFor(k)[0][0], date: addDays(null, -startDaysAgo + i * 4), personId: who[k].id, cost: Math.round(contract * 0.045 / 100) * 100, at: j.createdAt, doneAt: Date.now() - (doneUpTo - i) * 3 * 86400000 };
+        else if (i < bookedUpTo) j.services[k] = { status: 'booked', option: optionsFor(k)[0][0], date: addDays(null, (i - doneUpTo) * 3 + 1), personId: who[k].id, cost: Math.round(contract * 0.045 / 100) * 100, at: Date.now() };
+      });
+      W.jobs.push(j); return j;
+    };
+    const j1 = mk('Ngata · 3 bed', '12 Mill Road, Ohoka', -43.3665, 172.5591, c1, b1, 96000, 8, 10, 60);
+    const j2 = mk('Harris · 2 bed', '48 Main North Road, Woodend', -43.3197, 172.6648, c2, b2, 84000, 3, 6, 25);
+    const j3 = mk('Chen · 3 bed', '5 Lowes Road, Rolleston', -43.5896, 172.3794, c3, b1, 102000, 12, 13, 95);
+    const j4 = mk('Patel · 1 bed', '210 Tram Road, Swannanoa', -43.3755, 172.4911, c4, b2, 58000, 0, 1, 4);
+    j1.plans = { name: 'ngata-plans.pdf', ext: 'PDF', size: 4200000, count: 1, at: Date.now() - 50 * 86400000 };
+    j3.plans = { name: 'chen-plans.pdf', ext: 'PDF', size: 3900000, count: 1, at: Date.now() - 90 * 86400000 };
+    j1.deliveries = [
+      { id: uid(), items: 'Floor', date: addDays(null, -30), window: '7–9am', urgent: false, status: 'delivered', cost: 6400, at: Date.now() },
+      { id: uid(), items: 'Frame', date: addDays(null, 2), window: '7–9am', urgent: false, status: 'scheduled', cost: 11800, at: Date.now() },
+      { id: uid(), items: 'Roof + wrap', date: addDays(null, 9), window: '9–12pm', urgent: false, status: 'scheduled', cost: 7300, at: Date.now() }
+    ];
+    j2.deliveries = [{ id: uid(), items: 'Joist hangers + 2 boxes of 90mm nails', date: today(), window: 'ASAP', urgent: true, status: 'scheduled', cost: 240, at: Date.now() }];
+    j1.extras = [
+      { id: uid(), desc: 'Extra 6 m² of deck', amount: 3200, status: 'approved', at: Date.now() - 20 * 86400000 },
+      { id: uid(), desc: 'Upgrade to heat pump-ready circuit', amount: 850, status: 'pending', at: Date.now() - 2 * 86400000 }
+    ];
+    j3.extras = [{ id: uid(), desc: 'Longer driveway culvert', amount: 1900, status: 'approved', at: Date.now() - 40 * 86400000 }];
+    j1.payments = [{ id: uid(), amount: 30000, date: addDays(null, -58), note: 'Deposit' }, { id: uid(), amount: 25000, date: addDays(null, -20), note: 'Progress payment' }];
+    j2.payments = [{ id: uid(), amount: 25000, date: addDays(null, -24), note: 'Deposit' }];
+    j3.payments = [{ id: uid(), amount: 30000, date: addDays(null, -94), note: 'Deposit' }, { id: uid(), amount: 60000, date: addDays(null, -30), note: 'Progress payment' }];
+    j4.payments = [{ id: uid(), amount: 15000, date: addDays(null, -3), note: 'Deposit' }];
+    ensureUpdates();
+  }
+
+  // =====================================================================
+  // Small view pieces
+  // =====================================================================
+  const av = (p, size) => p ? `<span class="av" style="width:${size || 36}px;height:${size || 36}px;background:${esc(p.color)};font-size:${Math.round((size || 36) * 0.36)}px" aria-hidden="true">${esc(initials(p.name))}</span>` : `<span class="av" style="width:${size || 36}px;height:${size || 36}px;background:#bbb">?</span>`;
+  const bar = (p, big) => `<div class="bar${big ? ' big' : ''}${p >= 100 ? ' done' : ''}" role="progressbar" aria-valuenow="${p}" aria-valuemin="0" aria-valuemax="100"><i style="width:${p}%"></i></div>`;
+  const pill = (t, c) => `<span class="pill ${c || ''}">${esc(t)}</span>`;
+  const shortDate = (s) => { const d = new Date(s + 'T00:00'); return `<b>${d.getDate()}</b><span>${d.toLocaleDateString('en-NZ', { month: 'short' })}</span>`; };
+  const empty = (msg, action) => `<div class="empty">${msg}${action || ''}</div>`;
+
+  function todoRow(x, showPerson) {
+    const p = person(x.personId);
+    const j = x.jobId && job(x.jobId);
+    return `<div class="todo" style="--c:${esc(p ? p.color : '#999')}">
+      <button class="tick" data-act="tick" data-key="${esc(x.key)}" data-job="${esc(x.jobId || '')}" aria-label="Mark done: ${esc(x.text)}"></button>
+      <div class="grow">
+        <div class="tx">${esc(x.text)}</div>
+        <div class="meta">
+          ${showPerson && p ? `<a href="#/person/${p.id}" style="color:${esc(p.color)};font-weight:600;text-decoration:none">${esc(p.name)}</a>` : ''}
+          ${j ? `<a href="#/job/${j.id}">${esc(j.name)}</a>` : ''}
+          ${x.due ? `<span>${x.overdue ? '' : 'Due '}${fmtD(x.due)}</span>` : ''}
+          ${x.overdue ? pill('Overdue', 'err') : ''}
+          ${x.kind === 'urgent' ? pill('Urgent', 'err') : ''}
+        </div>
       </div>
-      <form class="page" id="authForm" novalidate>
-        <h2 class="display" style="font-size:24px;margin:0">${up ? 'Create your account' : 'Sign in'}</h2>
-        ${up ? `<div class="field"><label class="label" for="name">Your name</label><input id="name" autocomplete="name" required></div>` : ''}
-        <div class="field"><label class="label" for="email">Email</label><input id="email" type="email" autocomplete="email" required></div>
-        <div class="field"><label class="label" for="pw">Password</label><input id="pw" type="password" autocomplete="${up ? 'new-password' : 'current-password'}" minlength="6" required></div>
+    </div>`;
+  }
+
+  function jobRow(j) {
+    const p = pct(j);
+    const c = person(j.customerId);
+    return `<a class="li" href="#/job/${j.id}">
+      <div class="grow">
+        <div class="row" style="gap:8px"><h3 class="ellip">${esc(j.name)}</h3>${j.example ? pill('Example') : ''}</div>
+        <div class="sub ellip">${esc(j.address)}${c ? ' · ' + esc(c.name) : ''}</div>
+        <div class="row" style="margin-top:8px;gap:10px"><div class="grow">${bar(p)}</div><span class="pct">${p}%</span></div>
+        <div class="sub ellip" style="margin-top:4px">Next: ${esc(nextStep(j))}</div>
+      </div>
+    </a>`;
+  }
+
+  function upcoming(jobs, days) {
+    const items = [];
+    jobs.forEach((j) => {
+      Object.entries(j.services).forEach(([k, s]) => { if (s.status !== 'done' && s.date && daysUntil(s.date) >= 0 && daysUntil(s.date) <= days) items.push({ date: s.date, title: SVC[k].title, j, p: person(s.personId), urgent: false }); });
+      (j.deliveries || []).forEach((d) => { if (d.status === 'scheduled' && daysUntil(d.date) >= 0 && daysUntil(d.date) <= days) items.push({ date: d.date, title: (d.urgent ? 'Urgent: ' : 'Delivery: ') + d.items, j, sub: d.window, urgent: d.urgent }); });
+    });
+    return items.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : b.urgent - a.urgent));
+  }
+  function upcomingList(items) {
+    if (!items.length) return empty('Nothing booked in this window.');
+    return `<div class="list">${items.map((x) => `<a class="li" href="#/job/${x.j.id}">
+      <div class="when${x.urgent ? ' urgent' : x.date === today() ? ' today' : ''}">${shortDate(x.date)}</div>
+      <div class="grow"><div style="font-weight:600" class="ellip">${esc(x.title)}</div><div class="sub ellip">${esc(x.j.name)}${x.sub ? ' · ' + esc(x.sub) : ''}${x.p ? ' · ' + esc(x.p.company || x.p.name) : ''}</div></div>
+      ${x.p ? av(x.p, 28) : ''}
+    </a>`).join('')}</div>`;
+  }
+
+  // =====================================================================
+  // Pages
+  // =====================================================================
+  function pageDashboard() {
+    const jobs = visibleJobs();
+    const active = jobs.filter((j) => pct(j) < 100);
+    const tasks = allTasks();
+    const overdue = tasks.filter((x) => x.overdue).length;
+    const avg = active.length ? Math.round(active.reduce((a, j) => a + pct(j), 0) / active.length) : 0;
+    const tot = jobs.reduce((a, j) => { const m = money(j); a.total += m.total; a.paid += m.paid; a.owing += m.owing; a.ex += m.approved; a.pend += m.pending; a.costs += m.costs; return a; }, { total: 0, paid: 0, owing: 0, ex: 0, pend: 0, costs: 0 });
+    const v = viewer();
+    const hr = new Date().getHours();
+    const hello = (hr < 12 ? 'Morning' : hr < 17 ? 'Afternoon' : 'Evening') + ', ' + esc(first(v ? v.name : user.name));
+    const unsent = isTeam() ? W.jobs.filter((j) => (j.updates || []).some((u) => u.weekOf === mondayOf() && !u.sent)).length : 0;
+
+    if (!W.jobs.length) {
+      return `<div class="pagehead"><div><h1>${hello}</h1><div class="sub">${fmtD(today())}</div></div></div>
+        <div class="card">${empty('<div><h2 style="margin-bottom:6px">No jobs yet</h2>Add your first job, or load some example jobs to try everything out.</div>',
+          '<div class="btns" style="justify-content:center"><a class="btn" href="#/jobs/new">' + ico('plus') + 'New job</a><button class="btn ghost" data-act="examples">Load example jobs</button></div>')}</div>`;
+    }
+
+    // group to-dos by person for the "who needs to do what" card
+    const byPerson = {};
+    tasks.forEach((x) => { (byPerson[x.personId] = byPerson[x.personId] || []).push(x); });
+    const ppl = Object.keys(byPerson).map(person).filter(Boolean).sort((a, b) => byPerson[b.id].length - byPerson[a.id].length);
+
+    return `
+      <div class="pagehead">
+        <div><h1>${hello}</h1><div class="sub">${fmtD(today())} · ${active.length} active job${active.length === 1 ? '' : 's'}</div></div>
+        ${isTeam() ? `<a class="btn" href="#/jobs/new">${ico('plus')}New job</a>` : ''}
+      </div>
+      <div class="grid g4">
+        <div class="kpi"><span class="l">Active jobs</span><span class="v">${active.length}</span><span class="s">${avg}% average complete</span></div>
+        <div class="kpi"><span class="l">To-dos</span><span class="v">${tasks.length}</span><span class="s" style="${overdue ? 'color:var(--err);font-weight:600' : ''}">${overdue} overdue</span></div>
+        <div class="kpi"><span class="l">${isTeam() ? 'Total job value' : 'Your job total'}</span><span class="v">${$(tot.total)}</span><span class="s">incl. ${$(tot.ex)} extras${tot.pend ? ' · ' + $(tot.pend) + ' waiting' : ''}</span></div>
+        <div class="kpi"><span class="l">Still to be paid</span><span class="v">${$(tot.owing)}</span><span class="s">${$(tot.paid)} paid so far</span></div>
+      </div>
+      ${unsent ? `<a class="note row" href="#/updates" style="text-decoration:none">${ico('mail', 20)}<span class="grow"><b>${unsent} weekly customer update${unsent === 1 ? '' : 's'} ready to send</b> · written automatically this week</span><span class="more">Review</span></a>` : ''}
+      <div class="grid g2 g21">
+        <div class="card tight">
+          <div class="card-h" style="padding:14px 16px"><h2>Jobs</h2><a href="#/jobs">All jobs</a></div>
+          <div class="list" style="border-top:1px solid var(--line)">${active.slice(0, 6).map(jobRow).join('') || empty('No active jobs.')}</div>
+        </div>
+        <div class="card tight">
+          <div class="card-h" style="padding:14px 16px"><h2>Who needs to do what</h2><a href="#/todo">All to-dos</a></div>
+          <div class="list" style="border-top:1px solid var(--line)">
+            ${ppl.length ? ppl.map((p) => {
+              const xs = byPerson[p.id]; const od = xs.filter((x) => x.overdue).length;
+              return `<a class="li" href="#/todo/${p.id}" style="border-left:5px solid ${esc(p.color)}">${av(p, 34)}<div class="grow"><div style="font-weight:600" class="ellip">${esc(p.name)}</div><div class="sub ellip">${esc(xs[0].text)}</div></div>${od ? pill(od + ' overdue', 'err') : ''}<span class="pill">${xs.length}</span></a>`;
+            }).join('') : empty('Nothing to do. Nice.')}
+          </div>
+        </div>
+      </div>
+      <div class="card tight">
+        <div class="card-h" style="padding:14px 16px"><h2>Next 14 days</h2><span class="sub">Bookings and deliveries</span></div>
+        <div style="border-top:1px solid var(--line)">${upcomingList(upcoming(jobs, 14))}</div>
+      </div>`;
+  }
+
+  function pageJobs() {
+    const all = visibleJobs();
+    const f = ui.jobFilter;
+    const list = all.filter((j) => f === 'all' ? true : f === 'done' ? pct(j) >= 100 : pct(j) < 100)
+      .filter((j) => !ui.q || (j.name + ' ' + j.address).toLowerCase().includes(ui.q.toLowerCase()));
+    return `
+      <div class="pagehead"><div><h1>Jobs</h1><div class="sub">${all.length} job${all.length === 1 ? '' : 's'}</div></div>
+        <div class="btns"><a class="btn line" href="#/map">${ico('map')}Map</a>${isTeam() ? `<a class="btn" href="#/jobs/new">${ico('plus')}New job</a>` : ''}</div></div>
+      <div class="row" style="flex-wrap:wrap">
+        <div class="f grow" style="min-width:200px"><label class="sr" for="q">Search jobs</label><input id="q" data-bind="q" placeholder="Search by name or address" value="${esc(ui.q)}"></div>
+        <div class="chips">${[['active', 'Active'], ['done', 'Complete'], ['all', 'All']].map(([k, l]) => `<button class="chip${f === k ? ' on' : ''}" data-act="jobfilter" data-v="${k}">${l}</button>`).join('')}</div>
+      </div>
+      <div class="card tight"><div class="list">${list.map(jobRow).join('') || empty(all.length ? 'No jobs match.' : 'No jobs yet.', isTeam() && !all.length ? '<div class="btns" style="justify-content:center"><a class="btn" href="#/jobs/new">New job</a><button class="btn ghost" data-act="examples">Load example jobs</button></div>' : '')}</div></div>`;
+  }
+
+  function pageJobForm(j) {
+    const editing = !!j;
+    j = j || { name: '', address: '', contract: 0, scope: SERVICES.map((s) => s.k), customerId: '', builderId: '' };
+    const custs = W.people.filter((p) => p.role === 'Customer');
+    const blds = W.people.filter((p) => p.role === 'Builder');
+    return `
+      <div><a class="crumb" href="${editing ? '#/job/' + j.id : '#/jobs'}">${ico('back', 16)}${editing ? esc(j.name) : 'Jobs'}</a><h1>${editing ? 'Edit job' : 'New job'}</h1></div>
+      <form class="card form" data-form="job" data-id="${editing ? j.id : ''}" style="max-width:760px">
+        <div class="frow">
+          <div class="f"><label for="jn">Job name</label><input id="jn" name="name" value="${esc(j.name)}" placeholder="e.g. Smith · 3 bed" required></div>
+          <div class="f"><label for="jc">Contract price (site works)</label><input id="jc" name="contract" inputmode="decimal" value="${j.contract ? esc(j.contract) : ''}" placeholder="$0"></div>
+        </div>
+        <div class="f"><label for="ja">Site address</label><input id="ja" name="address" value="${esc(j.address)}" placeholder="e.g. 12 Mill Road, Ohoka" required></div>
+        <div class="frow">
+          <div class="f"><label for="jcu">Customer</label><select id="jcu" name="customerId"><option value="">${custs.length ? 'Choose…' : 'Add a new customer below'}</option>${custs.map((p) => `<option value="${p.id}"${p.id === j.customerId ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}<option value="__new">+ New customer</option></select></div>
+          <div class="f"><label for="jb">Builder</label><select id="jb" name="builderId"><option value="">None yet</option>${blds.map((p) => `<option value="${p.id}"${p.id === j.builderId ? ' selected' : ''}>${esc(p.name)}${p.company ? ' · ' + esc(p.company) : ''}</option>`).join('')}</select></div>
+        </div>
+        <fieldset id="newCust" style="border:1px solid var(--line);border-radius:12px;padding:12px;display:${custs.length && j.customerId !== '__new' ? 'none' : 'grid'};gap:10px">
+          <legend class="label" style="padding:0 6px">New customer</legend>
+          <div class="frow"><div class="f"><label for="ncn">Name</label><input id="ncn" name="cname"></div><div class="f"><label for="ncp">Phone</label><input id="ncp" name="cphone" type="tel"></div></div>
+          <div class="f"><label for="nce">Email (for weekly updates)</label><input id="nce" name="cemail" type="email"></div>
+        </fieldset>
+        <div class="f"><span class="lab">What's included</span>
+          <div class="checks">${SERVICES.map((s) => `<label class="check"><input type="checkbox" name="scope" value="${esc(s.k)}"${j.scope.includes(s.k) ? ' checked' : ''}>${esc(s.title)}</label>`).join('')}</div></div>
         <div class="err" id="err" role="alert"></div>
-        <button class="btn" type="submit">${up ? 'Create account' : 'Sign in'}</button>
-        <button class="link" type="button" data-go="${up ? '#/signin' : '#/signup'}">${up ? 'Already have an account? Sign in' : 'New here? Create an account'}</button>
-      </form>`);
+        <div class="btns"><button class="btn" type="submit">${editing ? 'Save job' : 'Create job'}</button>${editing ? `<button class="btn danger" type="button" data-act="deljob" data-id="${j.id}">Delete job</button>` : ''}</div>
+      </form>`;
   }
 
-  function screenSetup() {
-    return shell(`
-      <form class="page" id="setupForm">
-        ${S.address ? `<button class="round flat" type="button" data-go="#/home" aria-label="Back">${svg.back}</button>` : ''}
-        <div style="display:flex;flex-direction:column;gap:6px">
-          <h1 style="font-size:30px;line-height:1.1">${S.address ? 'Job details' : 'Hi ' + esc(user.name) + ', where is the site?'}</h1>
-          <div class="sub" style="font-size:15px">We book everything around the build at this address.</div>
-        </div>
-        <div class="field"><label class="label" for="addr">Site address</label><input id="addr" value="${esc(S.address)}" placeholder="e.g. 136 McRoberts Road" required></div>
-        <div class="field"><label class="label" for="stage">Current stage</label>
-          <select id="stage">${SERVICES.map((s) => `<option${s === S.stage ? ' selected' : ''}>${esc(s)}</option>`).join('')}</select></div>
-        <div class="err" id="err" role="alert"></div>
-        <button class="btn" type="submit" style="margin-top:auto">${S.address ? 'Save' : 'Continue'}</button>
-      </form>`);
-  }
+  const JOB_TABS = [['', 'Progress'], ['book', 'Book'], ['materials', 'Materials'], ['photos', 'Photos'], ['money', 'Money'], ['updates', 'Updates'], ['people', 'People']];
 
-  function mapSvg(h, extra) {
-    return `<svg viewBox="0 0 390 ${h}" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-      <rect width="390" height="${h}" fill="#E8ECE4"/>
-      <rect x="0" y="0" width="160" height="150" fill="#DCE3D4"/>
-      <rect x="240" y="${h - 180}" width="150" height="180" fill="#DCE3D4"/>
-      <path d="M0 ${Math.round(h * 0.6)} H390" stroke="#fff" stroke-width="14"/>
-      <path d="M80 0 V${h}" stroke="#fff" stroke-width="10"/>
-      <path d="M320 0 V${h}" stroke="#fff" stroke-width="10"/>
-      ${extra || ''}
-    </svg>`;
-  }
-
-  function screenHome() {
-    const q = ui.query.trim().toLowerCase();
-    const list = SERVICES.filter((s) => !q || s.toLowerCase().includes(q) || (TITLE[s] || '').toLowerCase().includes(q));
-    if (!SERVICES.includes(ui.picked)) ui.picked = 'Transport';
-    const pin = '<circle cx="220" cy="130" r="46" fill="#111" fill-opacity="0.08"/><rect x="208" y="118" width="24" height="24" fill="#111"/><rect x="216" y="126" width="8" height="8" fill="#fff"/>';
-    return shell(`
-      <div class="mapwrap">${mapSvg(300, pin)}
-        <div class="topbar">
-          <button class="round" data-act="menu" aria-label="Menu">${svg.menu}</button>
-          <button class="pill" data-go="#/setup"><span style="width:10px;height:10px;background:#111;flex-shrink:0"></span><span class="t">${esc(S.address)} · Stage: ${esc(S.stage)}</span>${svg.chev}</button>
-        </div>
-      </div>
-      <div class="sheet">
-        <div class="grab"></div>
-        <h1 style="font-size:26px">What does this job need?</h1>
-        <div class="search">${svg.search}<label for="q" class="sr">Search services</label><input id="q" placeholder="Search: crane, consent, power…" value="${esc(ui.query)}" autocomplete="off"></div>
-        <button class="feature" data-go="#/materials">
-          <div class="ic">${svg.box}</div>
-          <div style="flex-grow:1;display:flex;flex-direction:column;gap:2px"><span style="font-size:16px;font-weight:700">Materials</span><span style="font-size:13px;color:#D4D4D4">${S.plans ? 'Your plan is priced by stage' : 'Upload your plan, get it priced by stage'}</span></div>
-          ${svg.right}
-        </button>
-        <div class="grid4">${list.map((s) => `<button class="svc${s === ui.picked ? ' on' : ''}" data-pick="${esc(s)}" aria-pressed="${s === ui.picked}">${esc(s)}${S.bookings[s] ? ' ✓' : ''}</button>`).join('') || '<div class="sub" style="grid-column:1/-1">No service matches that.</div>'}</div>
-        <div class="card"><div class="dot">${svg.clock}</div><div style="flex-grow:1;display:flex;flex-direction:column;gap:2px"><div style="font-size:14px;font-weight:600">Suggested next: ${esc(NEXT[ui.picked])}</div><div class="sub">Based on this job's stage</div></div></div>
-        <button class="btn" data-act="choose" style="margin-top:auto">${S.bookings[ui.picked] ? 'View ' + esc(ui.picked.toLowerCase()) : 'Choose ' + esc(ui.picked.toLowerCase())}</button>
-        <button class="link" data-go="#/activity">See everything on this job</button>
-      </div>
-      ${ui.menu ? screenMenu() : ''}`);
-  }
-
-  function screenMenu() {
-    return `<div class="menu" data-act="closemenu"><nav class="panel" aria-label="Menu">
-      <div style="font-family:Archivo;font-weight:800;font-size:22px">${esc(user.name)}</div>
-      <div class="sub" style="margin-bottom:12px">${esc(user.email)}</div>
-      <button class="item" data-go="#/home">Book a service</button>
-      <button class="item" data-go="#/activity">Activity</button>
-      <button class="item" data-go="#/materials">Materials</button>
-      <button class="item" data-go="#/setup">Job details</button>
-      <button class="item" data-act="reset">Reset my test data</button>
-      <button class="item" data-act="signout">Sign out</button>
-    </nav></div>`;
-  }
-
-  function screenOptions() {
-    const svc = ui.picked;
-    const opts = optionsFor(svc);
-    if (ui.option >= opts.length) ui.option = 0;
-    const route = '<path d="M80 270 V180 H320 V80" fill="none" stroke="#111" stroke-width="5" stroke-linejoin="round"/><circle cx="80" cy="270" r="9" fill="#111"/><circle cx="80" cy="270" r="3.5" fill="#fff"/><rect x="311" y="71" width="18" height="18" fill="#111"/><rect x="317" y="77" width="6" height="6" fill="#fff"/>';
-    return shell(`
-      <div class="mapwrap">${mapSvg(300, route)}
-        <div class="topbar"><button class="round" data-go="#/home" aria-label="Back">${svg.back}</button></div>
-      </div>
-      <div class="sheet" style="gap:10px">
-        <div class="grab"></div>
-        <h1 style="font-size:22px;text-align:center">${esc(TITLE[svc])}</h1>
-        <div class="sub" style="text-align:center;margin-top:-6px">${esc(S.address)}</div>
-        ${opts.map((o, i) => `<button class="opt${i === ui.option ? ' on' : ''}" data-opt="${i}" aria-pressed="${i === ui.option}">
-          <div class="thumb">${svg.truck}</div>
-          <div style="flex-grow:1;display:flex;flex-direction:column;gap:2px;text-align:left"><span style="font-size:16px;font-weight:700">${esc(o.name)}</span><span class="sub">${esc(o.when)}</span><span class="sub">${esc(o.detail)}</span></div>
-          <span style="font-size:16px;font-weight:700">[PRICE]</span></button>`).join('')}
-        <div style="display:flex;align-items:center;gap:10px;padding:10px 4px;font-size:14px;border-top:1px solid #E5E5E5">${svg.card}<span style="font-weight:600">Paragon trade account</span><span class="sub" style="margin-left:auto;text-align:right">Permits + checks included</span></div>
-        <button class="btn" data-act="book" style="margin-top:auto">Book ${esc(opts[ui.option].name.toLowerCase())}</button>
-      </div>`);
-  }
-
-  function screenLive() {
-    const svc = ui.picked === 'Crane' ? 'Crane' : 'Transport';
-    const b = S.bookings[svc];
-    if (!b) return screenNothing(svc);
-    const p = progress(b);
-    const left = Math.max(0, Math.ceil(LIVE_MINUTES * (1 - p)));
-    const eta = b.at + LIVE_MINUTES * 60000;
-    const tx = 80 + Math.round(p * 240);
-    const truck = `<path d="M80 270 V180 H320 V80" fill="none" stroke="#9CA3AF" stroke-width="5" stroke-linejoin="round"/><rect x="311" y="71" width="18" height="18" fill="#111"/><rect x="317" y="77" width="6" height="6" fill="#fff"/><rect x="${tx - 20}" y="168" width="40" height="24" rx="4" fill="#111"/><rect x="${tx - 16}" y="172" width="22" height="16" fill="#fff"/>`;
-    return shell(`
-      <div class="mapwrap">${mapSvg(300, truck)}
-        <div class="topbar"><button class="round" data-go="#/activity" aria-label="Back">${svg.back}</button></div>
-      </div>
-      <div class="sheet">
-        <div class="grab"></div>
-        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
-          <h1 style="font-size:22px">${p >= 1 ? (svc === 'Crane' ? 'Crane on site' : 'House arrived') : (svc === 'Crane' ? 'Crane arriving ' : 'House arriving ') + fmtTime(eta)}</h1>
-          <div style="font-size:14px;font-weight:600;white-space:nowrap">${p >= 1 ? 'Done' : left + ' min'}</div>
-        </div>
-        <div class="bar"><div style="width:${Math.round(p * 100)}%"></div></div>
-        <div style="display:flex;align-items:center;gap:12px">
-          <div class="dot" style="width:52px;height:52px;border-radius:26px">[AB]</div>
-          <div style="flex-grow:1;display:flex;flex-direction:column;gap:2px"><div style="font-size:16px;font-weight:700">${svc === 'Crane' ? '[CRANE COMPANY]' : '[TRANSPORT COMPANY]'}</div><div class="sub">${esc(b.option)} · Driver [NAME]</div></div>
-          <div style="padding:6px 10px;border-radius:8px;background:#EEE;font-size:13px;font-weight:700">[REGO]</div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-          <button class="btn ghost" style="height:48px;border-radius:24px;font-size:15px;gap:8px" data-act="call">${svg.phone}Call driver</button>
-          <button class="btn ghost" style="height:48px;border-radius:24px;font-size:15px;gap:8px" data-act="share">${svg.share}Share</button>
-        </div>
-        <div class="rows">
-          <div class="row"><span>Overdimension permit</span><span class="okc">Approved</span></div>
-          <div class="row"><span>Booked</span><span>${fmtDate(b.at)} · ${fmtTime(b.at)}</span></div>
-          <div class="row"><span>Site</span><span>${esc(S.address)}</span></div>
-        </div>
-        <button class="link" data-go="#/activity" style="margin-top:auto">See everything on this job</button>
-      </div>`);
-  }
-
-  function screenConsent() {
-    const b = S.bookings.Consent;
-    if (!b) return screenNothing('Consent');
-    const day = consentDay(b);
-    const issued = day >= 20;
-    return shell(`
-      <div class="page">
-        <button class="round flat" data-go="#/activity" aria-label="Back">${svg.back}</button>
-        <div style="display:flex;flex-direction:column;gap:4px">
-          <div class="label">Building consent · ${esc(S.address)}</div>
-          <h1 style="font-size:28px;line-height:1.1">${issued ? 'Consent issued' : 'With council · day ' + day + ' of 20'}</h1>
-          <div class="sub" style="font-size:14px">${issued ? 'Ready to book piles' : 'Expected decision by ' + new Date(b.at + 20 * 86400000).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short' })}</div>
-        </div>
-        <div class="days">${Array.from({ length: 20 }, (_, i) => `<div class="${i < day ? 'on' : ''}"></div>`).join('')}</div>
-        <div class="card soft"><div class="dot" style="background:#111;color:#fff;width:48px;height:48px;border-radius:24px">[AB]</div>
-          <div style="flex-grow:1;display:flex;flex-direction:column;gap:2px"><div style="font-size:15px;font-weight:700">[CONSENT MANAGER NAME]</div><div class="sub">Your consent handler · ${esc(b.option)}</div></div>
-          <button class="round" style="width:44px;height:44px;box-shadow:none" data-act="message" aria-label="Message">${svg.msg}</button></div>
-        <div class="rows" style="border-top:none">
-          <div class="row" style="justify-content:flex-start;gap:14px">${svg.tick()}<span style="flex-grow:1">Consent job opened</span><span class="sub">${fmtDate(b.at)}</span></div>
-          <div class="row" style="justify-content:flex-start;gap:14px">${day >= 1 ? svg.tick() : '<span style="width:20px;height:20px;border-radius:10px;border:2px solid #111;flex-shrink:0"></span>'}<span style="flex-grow:1">Plans, geotech and engineering lodged</span></div>
-          <div class="row" style="justify-content:flex-start;gap:14px">${issued ? svg.tick() : '<span style="width:20px;height:20px;border-radius:10px;border:2px solid #111;flex-shrink:0"></span>'}<span style="flex-grow:1;font-weight:600">Consent issued, then we book the piles</span></div>
-        </div>
-        <div class="card" style="margin-top:auto;font-size:14px">You don't need to do anything. We'll ping you if council needs a decision from you.</div>
-      </div>`);
-  }
-
-  function screenNothing(svc) {
-    return shell(`<div class="page"><button class="round flat" data-go="#/home" aria-label="Back">${svg.back}</button>
-      <h1 style="font-size:26px">${esc(svc)} isn't booked yet</h1><button class="btn" data-pick-go="${esc(svc)}">Book ${esc(svc.toLowerCase())}</button></div>`);
-  }
-
-  function screenActivity() {
-    const tabs = ['This job', 'Bookings', 'Invoices'];
-    const done = SERVICES.filter((s) => ['done'].includes(serviceStatus(s).cls)).length;
+  function pageJob(j, tab) {
+    if (!j) return empty('That job doesn\'t exist.', '<a class="btn" href="#/jobs">Back to jobs</a>');
+    const p = pct(j);
+    const c = person(j.customerId);
+    const tabs = JOB_TABS;
     let body = '';
-    if (ui.tab === 0) {
-      body = `<div class="label" style="padding:8px 0">${esc(S.address)} · ${done} of ${SERVICES.length} done</div>` +
-        SERVICES.map((s) => {
-          const st = serviceStatus(s); const b = S.bookings[s];
-          return `<button class="act" data-row="${esc(s)}"><div class="ic">${ICON[s]}</div><div style="flex-grow:1;display:flex;flex-direction:column;gap:2px"><span style="font-size:15px;font-weight:600">${esc(TITLE[s])}</span><span class="sub">${b ? esc(b.option) + ' · ' + fmtDate(b.at) : 'Tap to book'}</span></div><span class="status ${st.cls}">${st.text}</span></button>`;
-        }).join('');
-    } else if (ui.tab === 1) {
-      const all = Object.entries(S.bookings).map(([k, v]) => ({ k, ...v }))
-        .concat(S.deliveries.map((d) => ({ k: 'Materials · ' + d.stage, option: d.slot, at: d.at })))
-        .sort((a, b) => b.at - a.at);
-      body = all.length ? all.map((b) => `<div class="act" style="cursor:default"><div class="ic">${ICON[b.k] || 'MAT'}</div><div style="flex-grow:1;display:flex;flex-direction:column;gap:2px"><span style="font-size:15px;font-weight:600">${esc(b.k)}</span><span class="sub">${esc(b.option)}</span></div><span class="sub">${fmtDate(b.at)} ${fmtTime(b.at)}</span></div>`).join('')
-        : '<div class="sub" style="padding:16px 0">Nothing booked yet.</div>';
-    } else {
-      body = '<div class="sub" style="padding:16px 0">No invoices yet. Everything goes on your trade account.</div>';
-    }
-    return shell(`
-      <div class="page" style="gap:12px">
-        <div style="display:flex;align-items:center;gap:10px"><button class="round flat" data-go="#/home" aria-label="Back">${svg.back}</button><h1 style="font-size:30px">Activity</h1></div>
-        <div class="tabs" role="tablist">${tabs.map((t, i) => `<button class="chipbtn${i === ui.tab ? ' on' : ''}" role="tab" aria-selected="${i === ui.tab}" data-tab="${i}">${t}</button>`).join('')}</div>
-        <div style="display:flex;flex-direction:column;flex-grow:1">${body}</div>
-        <button class="btn" data-go="#/home">Book something else</button>
-      </div>`);
-  }
-
-  function screenUpload() {
-    const p = S.plans;
-    return shell(`
-      <div class="page" style="gap:18px">
-        <button class="round flat" data-go="#/home" aria-label="Back">${svg.back}</button>
-        <div style="display:flex;flex-direction:column;gap:6px"><h1 style="font-size:30px;line-height:1.1">Upload your plans</h1>
-          <div class="sub" style="font-size:15px">We price every material, split into build stages. You order each stage when you're ready.</div></div>
-        <input type="file" id="planFile" class="sr" accept=".pdf,.dwg,image/*" multiple>
-        ${!p ? `<label for="planFile" class="drop"><div class="ic">${svg.upload}</div><span style="font-size:17px;font-weight:700">Tap to upload plans</span><span class="sub">PDF, DWG or photos · as many pages as you like</span></label>`
-        : `<div class="note" style="display:flex;flex-direction:column;gap:12px;padding:16px;border-radius:16px">
-            <div style="display:flex;align-items:center;gap:12px"><div style="width:44px;height:52px;border-radius:6px;background:#fff;border:1px solid #D4D4D4;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">${esc(p.ext)}</div>
-              <div style="flex-grow:1;min-width:0;display:flex;flex-direction:column;gap:2px"><span style="font-size:15px;font-weight:700;overflow-wrap:anywhere">${esc(p.name)}</span><span class="sub">${p.count} file${p.count > 1 ? 's' : ''} · ${(p.size / 1048576).toFixed(1)} MB · ${fmtDate(p.at)}</span></div>${svg.tick()}</div>
-            <div style="height:1px;background:#E5E5E5"></div>
-            <div style="display:flex;gap:10px;align-items:center;font-size:14px">${svg.tick()}Plans received</div>
-            <div style="display:flex;gap:10px;align-items:center;font-size:14px">${svg.tick()}Split into ${STAGES.length} stages</div>
-            <label for="planFile" class="link" style="text-align:left;padding:0">Replace plans</label></div>`}
-        <div class="field"><label class="label" for="deliverTo">Deliver to</label><input id="deliverTo" value="${esc(p && p.deliverTo || S.address)}"></div>
-        <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px">
-          ${p ? '<button class="btn" data-go="#/materials/stages">See my price</button>' : '<button class="btn" disabled>Upload plans to get a price</button>'}
-          <div class="sub" style="text-align:center">Price back within [TURNAROUND]</div>
+    if (!tab) body = tabProgress(j);
+    else if (tab === 'book') body = tabBook(j);
+    else if (tab === 'materials') body = tabMaterials(j);
+    else if (tab === 'photos') body = tabPhotos(j);
+    else if (tab === 'money') body = tabMoney(j);
+    else if (tab === 'updates') body = tabUpdates(j);
+    else if (tab === 'people') body = tabPeople(j);
+    return `
+      <div>
+        <a class="crumb" href="#/jobs">${ico('back', 16)}Jobs</a>
+        <div class="pagehead">
+          <div class="grow"><div class="row" style="gap:8px"><h1 class="ellip">${esc(j.name)}</h1>${j.example ? pill('Example') : ''}</div>
+            <div class="sub">${esc(j.address)}${c ? ' · ' + esc(c.name) : ''} · <a href="#/map/${j.id}">Map</a></div></div>
+          ${isTeam() ? `<a class="btn line sm" href="#/job/${j.id}/edit">Edit job</a>` : ''}
         </div>
-      </div>`);
+        <div class="row" style="margin-top:12px;gap:12px"><div class="grow">${bar(p, true)}</div><span class="pct" style="font-size:22px">${p}%</span></div>
+      </div>
+      <nav class="tabs" aria-label="Job sections">${tabs.map(([k, l]) => `<a href="#/job/${j.id}${k ? '/' + k : ''}" class="${(tab || '') === k ? 'on' : ''}">${l}</a>`).join('')}</nav>
+      ${body}`;
   }
 
-  function screenStages() {
-    if (!S.plans) return screenUpload();
-    return shell(`
-      <div class="page" style="gap:12px">
-        <button class="round flat" data-go="#/materials" aria-label="Back">${svg.back}</button>
-        <div><div class="label">${esc(S.address)} · Materials</div><h1 style="font-size:28px">Priced by stage</h1></div>
-        <div style="display:flex;justify-content:space-between;align-items:baseline;padding:12px 14px;border-radius:12px;background:#F5F5F5"><span class="sub" style="font-size:14px">Whole house</span><span class="display" style="font-size:22px">[TOTAL]</span></div>
-        <div style="display:flex;flex-direction:column;flex-grow:1">
-          ${STAGES.map((st, i) => {
-            const s = S.stages[i];
-            const right = s === 'delivered' ? '<span class="status done">Delivered</span>'
-              : s === 'ready' ? `<button class="btn" style="height:44px;width:auto;padding:0 16px;border-radius:22px;font-size:14px" data-deliver="${i}">Deliver</button>`
-              : '<span style="font-size:14px;font-weight:700">[PRICE]</span>';
-            return `<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #E5E5E5"><div class="dot" style="width:32px;height:32px;font-size:14px">${i + 1}</div><div style="flex-grow:1;display:flex;flex-direction:column;gap:2px"><span style="font-size:15px;font-weight:700">${esc(st[0])}</span><span class="sub">${esc(st[1])}</span></div>${right}</div>`;
+  function tabProgress(j) {
+    const tasks = autoTasks(j).filter((x) => isTeam() || x.personId === viewer().id);
+    const photos = (j.photos || []).slice(-5).reverse();
+    return `
+      <div class="card"><div class="stages">${STAGES.map((s, i) => { const sp = stagePct(j, i); return sp == null ? '' : `<div class="stage"><span class="n">${esc(s)}</span>${bar(sp)}<span class="sub">${sp}%</span></div>`; }).join('')}</div></div>
+      <div class="grid g2 g21">
+        <div class="card tight">
+          <div class="card-h" style="padding:14px 16px"><h2>Services</h2><a href="#/job/${j.id}/book">Book a service</a></div>
+          <div class="list" style="border-top:1px solid var(--line)">
+            ${j.scope.map((k) => {
+              const s = j.services[k]; const st = svcState(j, k); const who = s && person(s.personId);
+              const canDone = s && s.status !== 'done' && (isTeam() || (who && who.id === viewer().id));
+              return `<div class="li">
+                <div class="ic">${SVC[k].icon}</div>
+                <div class="grow"><div style="font-weight:600" class="ellip">${esc(SVC[k].title)}</div>
+                  <div class="sub ellip">${s ? esc(s.option) + (s.date ? ' · ' + fmtD(s.date) : '') + (who ? ' · ' + esc(who.company || who.name) : '') : 'Not booked yet'}</div></div>
+                ${pill(st.t, st.c)}
+                ${!s && isTeam() ? `<a class="btn sm ghost" href="#/job/${j.id}/book/${encodeURIComponent(k)}">Book</a>` : ''}
+                ${canDone ? `<button class="btn sm" data-act="svcdone" data-job="${j.id}" data-k="${esc(k)}">Done</button>` : ''}
+                ${s && s.status === 'done' && isTeam() ? `<button class="btn sm line" data-act="svcundo" data-job="${j.id}" data-k="${esc(k)}" aria-label="Undo ${esc(SVC[k].title)} done">Undo</button>` : ''}
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:16px;min-width:0">
+          <div class="card tight">
+            <div class="card-h" style="padding:14px 16px"><h2>To-dos on this job</h2><span class="pill">${tasks.length}</span></div>
+            <div style="border-top:1px solid var(--line)">${tasks.map((x) => todoRow(x, true)).join('') || empty('Nothing outstanding.')}</div>
+            ${isTeam() ? `<form class="form" data-form="task" data-job="${j.id}" style="padding:12px 16px;border-top:1px solid var(--line);gap:8px">
+              <div class="f"><label for="tt">Add a to-do</label><input id="tt" name="text" placeholder="e.g. Confirm colours with customer" required></div>
+              <div class="frow"><div class="f"><label for="tp">For</label><select id="tp" name="personId">${jobPeople(j).map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
+              <div class="f"><label for="td">Due</label><input id="td" name="due" type="date"></div></div>
+              <button class="btn sm" type="submit">Add to-do</button></form>` : ''}
+          </div>
+          <div class="card">
+            <div class="card-h"><h2>Latest photos</h2><a href="#/job/${j.id}/photos">All photos</a></div>
+            ${photos.length ? `<div class="photos" style="grid-template-columns:repeat(3,1fr)">${photos.slice(0, 3).map(photoThumb).join('')}</div>` : `<div class="sub">No photos yet.</div><a class="btn sm ghost" href="#/job/${j.id}/photos">${ico('camera', 16)}Add photos</a>`}
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function jobPeople(j) {
+    const ids = [teamLead() && teamLead().id, j.customerId, j.builderId].concat(Object.values(j.services).map((s) => s.personId));
+    const seen = new Set();
+    return ids.filter((id) => id && !seen.has(id) && seen.add(id)).map(person).filter(Boolean);
+  }
+
+  function tabBook(j, preselect) {
+    if (!isTeam()) return `<div class="card">${empty('Connect books every service for you. Ask us if you need something.')}</div>`;
+    const pick = preselect || ui.pick;
+    const sel = pick && SVC[pick];
+    const opts = sel ? optionsFor(pick) : [];
+    if (ui.opt >= opts.length) ui.opt = 0;
+    const existing = sel && j.services[pick];
+    const trades = sel ? W.people.filter((p) => (p.trades || []).includes(pick)) : [];
+    const allContractors = W.people.filter((p) => ['Contractor', 'Consent manager', 'Supplier'].includes(p.role));
+    const defaultP = existing ? existing.personId : (trades[0] && trades[0].id);
+    const nextK = j.scope.find((k) => !j.services[k]);
+    return `
+      <div class="card">
+        <div class="card-h"><h2>What does this job need?</h2>${nextK ? `<span class="sub">Suggested next: <b>${esc(SVC[nextK].title)}</b></span>` : ''}</div>
+        <div class="svcs">${SERVICES.map((s) => { const st = svcState(j, s.k); return `<button class="svc${s.k === pick ? ' on' : ''}" data-act="pick" data-k="${esc(s.k)}" data-job="${j.id}" aria-pressed="${s.k === pick}">${esc(s.k)}<span class="s">${j.scope.includes(s.k) ? esc(st.t) : 'Not in scope'}</span></button>`; }).join('')}</div>
+      </div>
+      ${sel ? `
+      <form class="card form" data-form="book" data-job="${j.id}" data-k="${esc(pick)}">
+        <div class="card-h"><h2>${esc(sel.title)}</h2>${existing ? pill('Booked · ' + fmtD(existing.date), 'dark') : ''}</div>
+        <div style="display:flex;flex-direction:column;gap:8px">${opts.map(([n, d], i) => `<button type="button" class="opt${i === ui.opt ? ' on' : ''}" data-act="opt" data-i="${i}" aria-pressed="${i === ui.opt}"><span class="ic">${ico('truck', 22)}</span><span class="grow"><b>${esc(n)}</b><br><span class="sub">${esc(d)}</span></span></button>`).join('')}</div>
+        <div class="frow">
+          <div class="f"><label for="bd">Date</label><input id="bd" name="date" type="date" required value="${esc(existing ? existing.date : addDays(null, 3))}"></div>
+          <div class="f"><label for="bc">Our cost (optional)</label><input id="bc" name="cost" inputmode="decimal" placeholder="$0" value="${existing && existing.cost ? esc(existing.cost) : ''}"></div>
+        </div>
+        <div class="f"><label for="bp">Assigned to</label><select id="bp" name="personId"><option value="">Connect will assign</option>${allContractors.map((p) => `<option value="${p.id}"${p.id === defaultP ? ' selected' : ''}>${esc(p.company || p.name)} · ${esc(p.name)}${(p.trades || []).includes(pick) ? ' ✓' : ''}</option>`).join('')}</select>
+          <span class="sub">${trades.length ? 'Matched from contractors who do ' + esc(pick.toLowerCase()) + '.' : 'No contractor is set up for ' + esc(pick.toLowerCase()) + ' yet. Add one in People.'}</span></div>
+        <div class="btns"><button class="btn" type="submit">${existing ? 'Update booking' : 'Book ' + esc(opts[ui.opt][0].toLowerCase())}</button>${existing ? `<button class="btn danger" type="button" data-act="unbook" data-job="${j.id}" data-k="${esc(pick)}">Cancel booking</button>` : ''}</div>
+      </form>` : ''}`;
+  }
+
+  function tabMaterials(j) {
+    const ds = (j.deliveries || []).slice().sort((a, b) => (a.date < b.date ? -1 : 1));
+    const byStage = (name) => ds.find((d) => d.items === name && !d.urgent);
+    const p = j.plans;
+    const sched = ui.schedule;
+    return `
+      <div class="grid g2">
+        <div class="card">
+          <div class="card-h"><h2>Plans</h2>${p ? pill('Uploaded', 'ok') : pill('Needed', 'warn')}</div>
+          <input type="file" id="planFile" class="sr" accept=".pdf,.dwg,image/*" multiple data-job="${j.id}">
+          ${p ? `<div class="row"><span class="ic">${esc(p.ext)}</span><div class="grow"><div style="font-weight:600;overflow-wrap:anywhere">${esc(p.name)}</div><div class="sub">${p.count} file${p.count > 1 ? 's' : ''} · ${(p.size / 1048576).toFixed(1)} MB · ${fmtTs(p.at)}</div></div><label for="planFile" class="btn sm line">Replace</label></div>`
+            : `<label for="planFile" class="drop">${ico('upload', 28)}<b>Upload house plans</b><span class="sub">PDF, DWG or photos. We price every material and split it into stages.</span></label>`}
+        </div>
+        <div class="card" style="background:#fff8e1;border-color:#f1d78a">
+          <div class="card-h"><h2>Need something now?</h2>${pill('Urgent', 'err')}</div>
+          ${ui.urgent ? `<form class="form" data-form="urgent" data-job="${j.id}">
+            <div class="f"><label for="ui">What do you need?</label><input id="ui" name="items" placeholder="e.g. 2 boxes of 90mm nails, joist hangers" required></div>
+            <div class="sub">Next available truck, usually within 3 hours. Urgent delivery fee [FEE].</div>
+            <div class="btns"><button class="btn" type="submit">${ico('bolt', 18)}Send urgent delivery</button><button class="btn line" type="button" data-act="urgent" data-v="0">Cancel</button></div></form>`
+          : `<div class="sub">Short on something on site? We send the next available truck.</div><button class="btn mustard block" data-act="urgent" data-v="1">${ico('bolt', 18)}Urgent delivery</button>`}
+        </div>
+      </div>
+      <div class="card tight">
+        <div class="card-h" style="padding:14px 16px"><h2>Deliveries by stage</h2><span class="sub">Pick a date for each one</span></div>
+        <div class="list" style="border-top:1px solid var(--line)">
+          ${MAT.map(([name, detail], i) => {
+            const d = byStage(name);
+            const open = sched === name;
+            return `<div class="li" style="flex-wrap:wrap">
+              <div class="when${d && d.status === 'scheduled' && d.date === today() ? ' today' : ''}">${d ? shortDate(d.date) : `<b>${i + 1}</b><span>stage</span>`}</div>
+              <div class="grow" style="min-width:160px"><div style="font-weight:600">${esc(name)}</div><div class="sub">${esc(detail)}${d ? ' · ' + fmtD(d.date) + ' ' + esc(d.window) : ''}${d && d.cost && isTeam() ? ' · ' + $(d.cost) : ''}</div></div>
+              ${!d ? (j.plans ? `<button class="btn sm" data-act="sched" data-v="${esc(name)}">Set date</button>` : `<span class="sub">Plans first</span>`)
+                : d.status === 'delivered' ? pill('Delivered', 'ok')
+                : `${pill('Scheduled', 'dark')}<button class="btn sm line" data-act="sched" data-v="${esc(name)}">Change</button>${isTeam() || viewer().id === j.builderId ? `<button class="btn sm" data-act="delivered" data-job="${j.id}" data-id="${d.id}">Delivered</button>` : ''}`}
+              ${open ? `<form class="form" data-form="sched" data-job="${j.id}" data-v="${esc(name)}" style="flex-basis:100%;gap:10px;margin-top:8px">
+                <div class="frow"><div class="f"><label for="sd">Delivery date</label><input id="sd" name="date" type="date" min="${today()}" value="${esc(d ? d.date : addDays(null, 1))}" required></div>
+                <div class="f"><label for="sw">Window</label><select id="sw" name="window">${WINDOWS.map((w) => `<option${d && d.window === w ? ' selected' : ''}>${w}</option>`).join('')}</select></div></div>
+                ${isTeam() ? `<div class="f"><label for="sc">Our cost (optional)</label><input id="sc" name="cost" inputmode="decimal" placeholder="$0" value="${d && d.cost ? esc(d.cost) : ''}"></div>` : ''}
+                <div class="btns"><button class="btn sm" type="submit">Save delivery</button><button class="btn sm line" type="button" data-act="sched" data-v="">Cancel</button></div></form>` : ''}
+            </div>`;
           }).join('')}
         </div>
-        <div class="sub" style="text-align:center">Prices held for [X] days · pay per stage on your trade account</div>
-      </div>`);
-  }
-
-  function screenDeliver(i) {
-    const stage = STAGES[i];
-    if (!stage || !S.plans) return screenStages();
-    const sent = S.stages[i] === 'delivered';
-    const slots = [
-      { name: 'Tomorrow morning', when: dayLabel(1) + ' · 7–9am, before the crew starts', price: 'Included' },
-      { name: 'Pick a day', when: 'Choose a date and window', price: 'Included' },
-      { name: 'Today', when: 'Next truck, ~3 hours', price: '+[FEE]' }
-    ];
-    const d = S.deliveries.find((x) => x.stage === stage[0]);
-    const route = `<path d="M90 270 V180 H310 V80" fill="none" stroke="#111" stroke-width="5" stroke-linejoin="round"/><circle cx="90" cy="270" r="9" fill="#111"/><circle cx="90" cy="270" r="3.5" fill="#fff"/><rect x="301" y="71" width="18" height="18" fill="#111"/><rect x="307" y="77" width="6" height="6" fill="#fff"/>${sent ? '<rect x="160" y="168" width="40" height="24" rx="4" fill="#111"/>' : ''}`;
-    return shell(`
-      <div class="mapwrap">${mapSvg(300, route)}
-        <div class="topbar"><button class="round" data-go="#/materials/stages" aria-label="Back">${svg.back}</button></div>
       </div>
-      <div class="sheet" style="gap:12px">
-        <div class="grab"></div>
-        ${!sent ? `
-          <h1 style="font-size:22px;text-align:center">Deliver stage ${i + 1} · ${esc(stage[0])}</h1>
-          <div class="sub" style="text-align:center;margin-top:-6px">Everything for this stage, one drop · ${esc(S.plans.deliverTo || S.address)}</div>
-          ${slots.map((o, k) => `<button class="opt${k === ui.slot ? ' on' : ''}" data-slot="${k}" aria-pressed="${k === ui.slot}"><div style="flex-grow:1;display:flex;flex-direction:column;gap:2px;text-align:left"><span style="font-size:16px;font-weight:700">${esc(o.name)}</span><span class="sub">${esc(o.when)}</span></div><span style="font-size:15px;font-weight:700">${esc(o.price)}</span></button>`).join('')}
-          ${ui.slot === 1 ? `<div class="field"><label class="label" for="pickDay">Delivery day</label><input id="pickDay" type="date" min="${new Date().toISOString().slice(0, 10)}"></div>` : ''}
-          <div style="display:flex;justify-content:space-between;padding:12px 4px 0;border-top:1px solid #E5E5E5;font-size:15px"><span>Stage ${i + 1} materials</span><span style="font-weight:700">[PRICE]</span></div>
-          <button class="btn" data-send="${i}" style="margin-top:auto">Deliver ${esc(slots[ui.slot].name.toLowerCase())}</button>`
-        : `
-          <h1 style="font-size:22px">${esc(stage[0])} stage booked</h1>
-          <div class="sub">${esc(d ? d.slot : '')}</div>
-          <div class="bar"><div style="width:35%"></div></div>
-          <div class="rows">
-            <div class="row"><span>${esc(stage[1])}</span><span class="okc">Loaded</span></div>
-            <div class="row"><span>Truck with HIAB</span><span style="font-weight:700">Scheduled</span></div>
+      ${ds.filter((d) => d.urgent).length ? `<div class="card tight"><div class="card-h" style="padding:14px 16px"><h2>Urgent deliveries</h2></div><div class="list" style="border-top:1px solid var(--line)">
+        ${ds.filter((d) => d.urgent).reverse().map((d) => `<div class="li"><div class="when urgent">${shortDate(d.date)}</div><div class="grow"><div style="font-weight:600">${esc(d.items)}</div><div class="sub">${esc(d.window)} · requested ${fmtTs(d.at)}</div></div>${d.status === 'delivered' ? pill('Delivered', 'ok') : `${pill('On the way', 'err')}${isTeam() || viewer().id === j.builderId ? `<button class="btn sm" data-act="delivered" data-job="${j.id}" data-id="${d.id}">Delivered</button>` : ''}`}</div>`).join('')}
+      </div></div>` : ''}`;
+  }
+
+  const photoThumb = (ph) => { const by = person(ph.personId); return `<button data-act="photo" data-id="${ph.id}" aria-label="Open photo${ph.caption ? ': ' + esc(ph.caption) : ''}"><img data-photo="${ph.id}" alt="${esc(ph.caption || 'Site photo')}"><span class="cap">${esc(ph.caption || fmtTs(ph.at))}${by ? ' · ' + esc(first(by.name)) : ''}</span></button>`; };
+
+  function tabPhotos(j) {
+    const ps = (j.photos || []).slice().reverse();
+    const groups = {};
+    ps.forEach((p) => { const k = mondayOf(new Date(p.at)); (groups[k] = groups[k] || []).push(p); });
+    return `
+      <form class="card form" data-form="photos" data-job="${j.id}">
+        <div class="card-h"><h2>Add photos</h2><span class="sub">${ps.length} photo${ps.length === 1 ? '' : 's'}</span></div>
+        <input type="file" id="photoFile" name="files" class="sr" accept="image/*" multiple>
+        <label for="photoFile" class="drop" id="photoDrop">${ico('camera', 28)}<b>Take or choose photos</b><span class="sub" id="photoCount">Shows on the job and in the customer's weekly update</span></label>
+        <div class="frow"><div class="f"><label for="pc">Caption (optional)</label><input id="pc" name="caption" placeholder="e.g. Piles poured"></div>
+        <div class="f"><label for="ps">Stage</label><select id="ps" name="stage">${STAGES.map((s) => `<option>${esc(s)}</option>`).join('')}</select></div></div>
+        <button class="btn" type="submit">${ico('upload', 18)}Upload</button>
+      </form>
+      ${Object.keys(groups).length ? Object.entries(groups).map(([wk, list]) => `<div class="card"><h3>Week of ${fmtD(wk)}</h3><div class="photos">${list.map(photoThumb).join('')}</div></div>`).join('') : ''}`;
+  }
+
+  function tabMoney(j) {
+    const m = money(j);
+    const team = isTeam();
+    const isCust = viewer() && viewer().id === j.customerId;
+    return `
+      <div class="grid g2">
+        <div class="card money">
+          <div class="card-h"><h2>${team ? 'Customer price' : 'Your job'}</h2>${m.owing <= 0 && m.total ? pill('Paid in full', 'ok') : ''}</div>
+          <div>
+            <div class="mrow"><span>Contract price</span><b>${$(j.contract)}</b></div>
+            <div class="mrow"><span>Extras approved</span><b>${m.approved ? '+ ' + $(m.approved) : $(0)}</b></div>
+            <div class="mrow total"><span>Total</span><b>${$(m.total)}</b></div>
+            <div class="mrow"><span>Paid so far</span><b style="color:var(--ok)">${$(m.paid)}</b></div>
+            <div class="mrow total"><span>Still to pay</span><b>${$(m.owing)}</b></div>
           </div>
-          <div class="note">Driver photographs the drop. Anything short gets credited automatically.</div>
-          <button class="btn" data-go="#/materials/stages" style="margin-top:auto">Done</button>`}
-      </div>`);
+          ${m.dueNow > 0 ? `<div class="note"><b>${$(m.dueNow)} due now</b> for work done to date (${pct(j)}% complete).</div>` : ''}
+          ${m.pending ? `<div class="sub">${$(m.pending)} of extras waiting for approval.</div>` : ''}
+        </div>
+        ${team ? `<div class="card money">
+          <div class="card-h"><h2>Our side</h2><span class="sub">Only the Connect team sees this</span></div>
+          <div>
+            <div class="mrow"><span>Services booked</span><b>${$(m.svcCost)}</b></div>
+            <div class="mrow"><span>Materials</span><b>${$(m.matCost)}</b></div>
+            <div class="mrow total"><span>Our costs</span><b>${$(m.costs)}</b></div>
+            <div class="mrow total"><span>Margin</span><b style="color:${m.margin >= 0 ? 'var(--ok)' : 'var(--err)'}">${$(m.margin)}${m.total ? ' · ' + Math.round(m.margin / m.total * 100) + '%' : ''}</b></div>
+          </div>
+        </div>` : ''}
+      </div>
+      <div class="grid g2">
+        <div class="card tight">
+          <div class="card-h" style="padding:14px 16px"><h2>Extras</h2><span class="sub">Anything added after the contract</span></div>
+          <div class="list" style="border-top:1px solid var(--line)">
+            ${(j.extras || []).length ? j.extras.slice().reverse().map((e) => `<div class="li"><div class="grow"><div style="font-weight:600">${esc(e.desc)}</div><div class="sub">${fmtTs(e.at)}</div></div><b>${$(e.amount)}</b>
+              ${e.status === 'pending' ? ((isCust || team) ? `<button class="btn sm" data-act="extra" data-job="${j.id}" data-id="${e.id}" data-v="approved">Approve</button><button class="btn sm line" data-act="extra" data-job="${j.id}" data-id="${e.id}" data-v="declined">Decline</button>` : pill('Waiting', 'warn'))
+                : pill(e.status === 'approved' ? 'Approved' : 'Declined', e.status === 'approved' ? 'ok' : 'err')}</div>`).join('') : empty('No extras.')}
+          </div>
+          ${team ? `<form class="form" data-form="extra" data-job="${j.id}" style="padding:12px 16px;border-top:1px solid var(--line);gap:8px">
+            <div class="frow"><div class="f"><label for="ed">Add an extra</label><input id="ed" name="desc" placeholder="What's extra" required></div><div class="f"><label for="ea">Amount</label><input id="ea" name="amount" inputmode="decimal" placeholder="$0" required></div></div>
+            <button class="btn sm" type="submit">Send to customer for approval</button></form>` : ''}
+        </div>
+        <div class="card tight">
+          <div class="card-h" style="padding:14px 16px"><h2>Payments</h2><span class="sub">${$(m.paid)} received</span></div>
+          <div class="list" style="border-top:1px solid var(--line)">
+            ${(j.payments || []).length ? j.payments.slice().reverse().map((p) => `<div class="li"><div class="grow"><div style="font-weight:600">${esc(p.note || 'Payment')}</div><div class="sub">${fmtD(p.date)}</div></div><b style="color:var(--ok)">${$(p.amount)}</b></div>`).join('') : empty('No payments yet.')}
+          </div>
+          ${team ? `<form class="form" data-form="payment" data-job="${j.id}" style="padding:12px 16px;border-top:1px solid var(--line);gap:8px">
+            <div class="frow"><div class="f"><label for="pa">Record a payment</label><input id="pa" name="amount" inputmode="decimal" placeholder="$0" required></div><div class="f"><label for="pd">Date</label><input id="pd" name="date" type="date" value="${today()}"></div></div>
+            <div class="f"><label for="pn" class="sr">Note</label><input id="pn" name="note" placeholder="Note, e.g. Progress payment 2"></div>
+            <button class="btn sm" type="submit">Record payment</button></form>` : ''}
+        </div>
+      </div>`;
   }
 
-  // ---------- Router ----------
+  function tabUpdates(j) {
+    const cust = person(j.customerId);
+    const ups = j.updates || [];
+    const team = isTeam();
+    return `
+      <div class="note">Every Monday Connect writes a progress update for each active job: progress, what was done, what's coming, what the customer needs to do, and money.</div>
+      ${team ? `<div class="btns"><button class="btn line sm" data-act="regen" data-job="${j.id}">Rewrite this week's update</button></div>` : ''}
+      ${ups.length ? ups.map((u) => `<div class="card">
+        <div class="card-h"><h2>Week of ${fmtD(u.weekOf)}</h2>${u.sent ? pill('Sent ' + fmtTs(u.sentAt || u.at), 'ok') : pill('Ready to send', 'warn')}</div>
+        <div class="update">${esc(u.text)}</div>
+        ${team ? `<div class="btns">
+          ${cust && cust.email ? `<a class="btn sm" href="mailto:${encodeURIComponent(cust.email)}?subject=${encodeURIComponent('Weekly update: ' + j.address)}&body=${encodeURIComponent(u.text)}" data-act="sent" data-job="${j.id}" data-id="${u.id}">${ico('mail', 16)}Email to ${esc(first(cust.name))}</a>` : `<span class="sub">Add an email for the customer to send this.</span>`}
+          <button class="btn sm line" data-act="copy" data-job="${j.id}" data-id="${u.id}">${ico('copy', 16)}Copy</button>
+          ${!u.sent ? `<button class="btn sm line" data-act="sent" data-job="${j.id}" data-id="${u.id}">Mark sent</button>` : ''}
+        </div>` : ''}
+      </div>`).join('') : `<div class="card">${empty(j.customerId ? 'The first update is written next Monday.' : 'Add a customer to this job to start weekly updates.')}</div>`}`;
+  }
+
+  function tabPeople(j) {
+    const rows = [['Customer', person(j.customerId)], ['Builder', person(j.builderId)]]
+      .concat(j.scope.filter((k) => j.services[k] && j.services[k].personId).map((k) => [SVC[k].title, person(j.services[k].personId)]));
+    return `<div class="card tight"><div class="list">
+      ${rows.map(([label, p]) => p ? `<a class="li" href="#/person/${p.id}" style="border-left:5px solid ${esc(p.color)}">${av(p, 40)}<div class="grow"><div class="label">${esc(label)}</div><div style="font-weight:600" class="ellip">${esc(p.name)}</div><div class="sub ellip">${esc(p.company || p.role)}${p.phone ? ' · ' + esc(p.phone) : ''}</div></div></a>`
+        : `<div class="li">${av(null, 40)}<div class="grow"><div class="label">${esc(label)}</div><div class="sub">Not set${isTeam() ? ' · <a href="#/job/' + j.id + '/edit">set it</a>' : ''}</div></div></div>`).join('')}
+    </div></div>`;
+  }
+
+  function pageMap(focusId) {
+    const jobs = visibleJobs();
+    const missing = jobs.filter((j) => j.lat == null);
+    return `
+      <div class="pagehead"><div><h1>Job map</h1><div class="sub">Every job, with how complete it is</div></div>
+        <div class="chips"><span class="chip"><span class="sw" style="background:#9a5b00"></span>Under 40%</span><span class="chip"><span class="sw" style="background:#ebbd06"></span>40–99%</span><span class="chip"><span class="sw" style="background:#2f6b45"></span>Complete</span></div></div>
+      <div id="map" class="map" data-focus="${esc(focusId || '')}" aria-label="Map of jobs"></div>
+      ${missing.length ? `<div class="note">Couldn't place ${missing.map((j) => `<a href="#/job/${j.id}/edit">${esc(j.name)}</a>`).join(', ')} on the map. Check the address.</div>` : ''}
+      <div class="card tight"><div class="list">${jobs.map(jobRow).join('') || empty('No jobs yet.')}</div></div>`;
+  }
+  const pinColor = (p) => (p >= 100 ? '#2f6b45' : p >= 40 ? '#ebbd06' : '#9a5b00');
+  function mountMap() {
+    const el = document.getElementById('map');
+    if (!el || !window.L) return;
+    const jobs = visibleJobs().filter((j) => j.lat != null);
+    mapInst = L.map(el, { scrollWheelZoom: true }).setView([-43.45, 172.5], 10);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(mapInst);
+    const markers = jobs.map((j) => {
+      const p = pct(j);
+      const icon = L.divIcon({ className: '', html: `<div class="mpin" style="--c:${pinColor(p)}">${p}%</div>`, iconSize: [46, 46], iconAnchor: [23, 23] });
+      const m = L.marker([j.lat, j.lng], { icon, title: j.name + ' · ' + p + '%' }).addTo(mapInst);
+      m.bindPopup(`<b>${esc(j.name)}</b><br><span style="color:#5a5a5a;font-size:12px">${esc(j.address)}</span><div style="margin:8px 0">${bar(p)}</div><div style="font-size:12px">${p}% · Next: ${esc(nextStep(j))}</div><div style="margin-top:8px"><a href="#/job/${j.id}" style="font-weight:600">Open job →</a></div>`);
+      m._jid = j.id; return m;
+    });
+    const focus = el.dataset.focus && markers.find((m) => m._jid === el.dataset.focus);
+    if (focus) { mapInst.setView(focus.getLatLng(), 14); focus.openPopup(); }
+    else if (markers.length) mapInst.fitBounds(L.featureGroup(markers).getBounds().pad(0.25), { maxZoom: 13 });
+  }
+
+  function pageTodo(pid) {
+    const tasks = allTasks();
+    const f = pid || ui.todoFilter;
+    const ppl = [...new Set(tasks.map((x) => x.personId))].map(person).filter(Boolean);
+    const shown = f === 'all' ? tasks : tasks.filter((x) => x.personId === f);
+    const groups = {};
+    shown.forEach((x) => { (groups[x.personId] = groups[x.personId] || []).push(x); });
+    return `
+      <div class="pagehead"><div><h1>To-do</h1><div class="sub">Made automatically from every job, put against each person</div></div></div>
+      <div class="chips"><a class="chip${f === 'all' ? ' on' : ''}" href="#/todo">Everyone · ${tasks.length}</a>${ppl.map((p) => `<a class="chip${f === p.id ? ' on' : ''}" href="#/todo/${p.id}"><span class="sw" style="background:${esc(p.color)}"></span>${esc(first(p.name))} · ${tasks.filter((x) => x.personId === p.id).length}</a>`).join('')}</div>
+      ${Object.keys(groups).length ? Object.entries(groups).map(([id, xs]) => {
+        const p = person(id);
+        return `<div class="card tight" style="--c:${esc(p ? p.color : '#999')}">
+          <a class="phead" href="#/person/${esc(id)}" style="text-decoration:none">${av(p, 34)}<div class="grow"><div style="font-weight:700">${esc(p ? p.name : 'Unassigned')}</div><div class="sub">${esc(p ? (p.company || p.role) : '')}</div></div><span class="pill">${xs.length}</span></a>
+          ${xs.map((x) => todoRow(x, false)).join('')}
+        </div>`;
+      }).join('') : `<div class="card">${empty('All done. Nothing waiting on anyone.')}</div>`}
+      ${isTeam() ? `<form class="card form" data-form="gtask" style="max-width:760px">
+        <h2>Add a to-do</h2>
+        <div class="f"><label for="gt">What needs doing</label><input id="gt" name="text" required></div>
+        <div class="frow"><div class="f"><label for="gp">For</label><select id="gp" name="personId">${W.people.map((p) => `<option value="${p.id}"${p.id === f ? ' selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
+        <div class="f"><label for="gj">Job (optional)</label><select id="gj" name="jobId"><option value="">No job</option>${W.jobs.map((j) => `<option value="${j.id}">${esc(j.name)}</option>`).join('')}</select></div></div>
+        <div class="f" style="max-width:240px"><label for="gd">Due (optional)</label><input id="gd" name="due" type="date"></div>
+        <button class="btn" type="submit">Add to-do</button></form>` : ''}`;
+  }
+
+  function pageUpdates() {
+    const wk = mondayOf();
+    const rows = W.jobs.filter((j) => j.customerId).map((j) => ({ j, u: (j.updates || []).find((u) => u.weekOf === wk) }));
+    return `<div class="pagehead"><div><h1>Weekly updates</h1><div class="sub">Week of ${fmtD(wk)} · written automatically every Monday</div></div></div>
+      <div class="card tight"><div class="list">${rows.map(({ j, u }) => { const c = person(j.customerId); return `<a class="li" href="#/job/${j.id}/updates">${av(c, 36)}<div class="grow"><div style="font-weight:600">${esc(c ? c.name : '')}</div><div class="sub ellip">${esc(j.name)} · ${pct(j)}%</div></div>${!u ? pill('Complete job', '') : u.sent ? pill('Sent', 'ok') : pill('Ready to send', 'warn')}</a>`; }).join('') || empty('No jobs with customers yet.')}</div></div>`;
+  }
+
+  function pagePeople() {
+    const roles = ['All'].concat(ROLES);
+    const f = ui.roleFilter;
+    const tasks = allTasks();
+    const list = W.people.filter((p) => (f === 'All' || p.role === f) && (!ui.q || (p.name + ' ' + (p.company || '')).toLowerCase().includes(ui.q.toLowerCase())))
+      .sort((a, b) => ROLES.indexOf(a.role) - ROLES.indexOf(b.role) || a.name.localeCompare(b.name));
+    return `
+      <div class="pagehead"><div><h1>People</h1><div class="sub">${W.people.length} contacts · each person has their own colour</div></div>${isTeam() ? `<a class="btn" href="#/people/new">${ico('plus')}Add person</a>` : ''}</div>
+      <div class="f"><label class="sr" for="q">Search people</label><input id="q" data-bind="q" placeholder="Search by name or company" value="${esc(ui.q)}"></div>
+      <div class="chips">${roles.map((r) => `<button class="chip${f === r ? ' on' : ''}" data-act="role" data-v="${esc(r)}">${esc(r)}</button>`).join('')}</div>
+      <div class="card tight"><div class="list">${list.map((p) => {
+        const n = tasks.filter((x) => x.personId === p.id).length;
+        const jobsN = W.jobs.filter((j) => involved(j, p.id)).length;
+        return `<a class="li" href="#/person/${p.id}" style="border-left:5px solid ${esc(p.color)}">${av(p, 42)}<div class="grow"><div style="font-weight:600" class="ellip">${esc(p.name)}</div><div class="sub ellip">${esc(p.role)}${p.company ? ' · ' + esc(p.company) : ''}${jobsN ? ' · ' + jobsN + ' job' + (jobsN > 1 ? 's' : '') : ''}</div></div>${n ? `<span class="pill">${n} to-do${n > 1 ? 's' : ''}</span>` : ''}</a>`;
+      }).join('') || empty('No one here yet.')}</div></div>`;
+  }
+
+  function pagePerson(p) {
+    if (!p) return empty('That person doesn\'t exist.', '<a class="btn" href="#/people">Back to people</a>');
+    const tasks = allTasks().filter((x) => x.personId === p.id);
+    const jobs = W.jobs.filter((j) => involved(j, p.id));
+    const tel = (p.phone || '').replace(/[^0-9+]/g, '');
+    return `
+      <div><a class="crumb" href="#/people">${ico('back', 16)}People</a></div>
+      <div class="card" style="border-top:6px solid ${esc(p.color)}">
+        <div class="row" style="gap:16px;align-items:flex-start">${av(p, 64)}
+          <div class="grow"><h1 style="font-size:24px">${esc(p.name)}</h1><div class="sub">${esc(p.role)}${p.company ? ' · ' + esc(p.company) : ''}</div>
+            ${(p.trades || []).length ? `<div class="chips" style="margin-top:8px">${p.trades.map((t) => pill(t)).join('')}</div>` : ''}</div>
+          ${isTeam() ? `<a class="btn sm line" href="#/person/${p.id}/edit">Edit</a>` : ''}
+        </div>
+        <div class="btns">
+          ${tel ? `<a class="btn" href="tel:${esc(tel)}">${ico('phone', 18)}Call</a><a class="btn ghost" href="sms:${esc(tel)}">${ico('msg', 18)}Text</a>` : ''}
+          ${p.email ? `<a class="btn ghost" href="mailto:${esc(p.email)}">${ico('mail', 18)}Email</a>` : ''}
+        </div>
+        <div class="money"><div class="mrow"><span class="sub">Phone</span><span>${esc(p.phone) || '—'}</span></div><div class="mrow"><span class="sub">Email</span><span style="overflow-wrap:anywhere">${esc(p.email) || '—'}</span></div>${p.notes ? `<div class="mrow"><span class="sub">Notes</span><span style="white-space:pre-wrap;text-align:right">${esc(p.notes)}</span></div>` : ''}</div>
+      </div>
+      <div class="grid g2">
+        <div class="card tight" style="--c:${esc(p.color)}"><div class="card-h" style="padding:14px 16px"><h2>Their to-dos</h2><span class="pill">${tasks.length}</span></div>
+          <div style="border-top:1px solid var(--line)">${tasks.map((x) => todoRow(x, false)).join('') || empty('Nothing waiting on ' + esc(first(p.name)) + '.')}</div></div>
+        <div class="card tight"><div class="card-h" style="padding:14px 16px"><h2>Jobs</h2><span class="pill">${jobs.length}</span></div>
+          <div class="list" style="border-top:1px solid var(--line)">${jobs.map(jobRow).join('') || empty('Not on any jobs yet.')}</div></div>
+      </div>
+      ${isTeam() && !ui.as && p.role !== 'Connect team' ? `<button class="btn line" data-act="viewas" data-v="${p.id}" style="align-self:flex-start">See Connect the way ${esc(first(p.name))} sees it</button>` : ''}`;
+  }
+
+  function pagePersonForm(p) {
+    const editing = !!p;
+    p = p || { name: '', role: 'Contractor', company: '', phone: '', email: '', notes: '', trades: [], color: nextColor() };
+    return `
+      <div><a class="crumb" href="${editing ? '#/person/' + p.id : '#/people'}">${ico('back', 16)}${editing ? esc(p.name) : 'People'}</a><h1>${editing ? 'Edit contact' : 'Add person'}</h1></div>
+      <form class="card form" data-form="person" data-id="${editing ? p.id : ''}" style="max-width:760px">
+        <div class="frow"><div class="f"><label for="pn">Name</label><input id="pn" name="name" value="${esc(p.name)}" required></div>
+          <div class="f"><label for="pr">Role</label><select id="pr" name="role">${ROLES.map((r) => `<option${r === p.role ? ' selected' : ''}>${r}</option>`).join('')}</select></div></div>
+        <div class="f"><label for="pco">Company</label><input id="pco" name="company" value="${esc(p.company)}"></div>
+        <div class="frow"><div class="f"><label for="pph">Phone</label><input id="pph" name="phone" type="tel" value="${esc(p.phone)}"></div>
+          <div class="f"><label for="pem">Email</label><input id="pem" name="email" type="email" value="${esc(p.email)}"></div></div>
+        <div class="f"><span class="lab">Does these services (contractors get matched automatically)</span>
+          <div class="checks">${SERVICES.map((s) => `<label class="check"><input type="checkbox" name="trades" value="${esc(s.k)}"${(p.trades || []).includes(s.k) ? ' checked' : ''}>${esc(s.k)}</label>`).join('')}</div></div>
+        <div class="f"><span class="lab">Colour</span><div class="chips">${COLORS.map((c) => `<label class="chip" style="padding:0 10px"><input type="radio" name="color" value="${c}"${c === p.color ? ' checked' : ''} style="accent-color:${c}"><span class="sw" style="background:${c};width:18px;height:18px;border-radius:9px"></span><span class="sr">${c}</span></label>`).join('')}</div></div>
+        <div class="f"><label for="pno">Notes</label><textarea id="pno" name="notes">${esc(p.notes)}</textarea></div>
+        <div class="err" id="err" role="alert"></div>
+        <div class="btns"><button class="btn" type="submit">${editing ? 'Save' : 'Add person'}</button>${editing && p.email !== user.email ? `<button class="btn danger" type="button" data-act="delperson" data-id="${p.id}">Remove</button>` : ''}</div>
+      </form>`;
+  }
+
+  function pageMore() {
+    const v = viewer();
+    return `
+      <h1>Account</h1>
+      <div class="card">
+        <div class="row">${av(me(), 48)}<div class="grow"><div style="font-weight:700">${esc(user.name)}</div><div class="sub">${esc(user.email)}</div></div></div>
+        <div class="sub">${SHARED ? 'Shared accounts are on. Everyone on the team sees the same jobs.' : 'Test mode: accounts and jobs are saved in this browser only.'}</div>
+      </div>
+      ${me() && me().role === 'Connect team' ? `<div class="card form">
+        <h2>View as someone else</h2>
+        <div class="sub">See exactly what a customer, builder or contractor sees: only their jobs and their to-dos.</div>
+        <div class="f"><label for="va">Viewing as</label><select id="va" data-act-change="viewas"><option value="">Me (Connect team)</option>${W.people.filter((p) => p.role !== 'Connect team').map((p) => `<option value="${p.id}"${v && v.id === p.id ? ' selected' : ''}>${esc(p.name)} · ${esc(p.role)}</option>`).join('')}</select></div>
+      </div>` : ''}
+      <div class="card">
+        <h2>Test data</h2>
+        <div class="btns"><button class="btn ghost" data-act="examples">Load example jobs</button><button class="btn danger" data-act="clearall">Clear all jobs and people</button></div>
+      </div>
+      <button class="btn line" data-act="signout" style="align-self:flex-start">Sign out</button>`;
+  }
+
+  function pageAuth(mode) {
+    const up = mode === 'signup';
+    return `<div class="auth">
+      <div class="hero">${lockup()}<div class="tag">They build the home.<br><em>We handle the site.</em></div><div style="color:#bdbdbd;font-size:14px">Every job, booking, delivery, photo and dollar in one place.</div></div>
+      <form class="form" id="authForm" novalidate>
+        ${!SHARED ? '<div class="banner" style="border-radius:10px">Test mode · accounts are saved in this browser only</div>' : ''}
+        <h1 style="font-size:26px">${up ? 'Create your account' : 'Sign in'}</h1>
+        ${up ? '<div class="f"><label for="name">Your name</label><input id="name" autocomplete="name" required></div>' : ''}
+        <div class="f"><label for="email">Email</label><input id="email" type="email" autocomplete="email" required></div>
+        <div class="f"><label for="pw">Password</label><input id="pw" type="password" autocomplete="${up ? 'new-password' : 'current-password'}" minlength="6" required></div>
+        <div class="err" id="err" role="alert"></div>
+        <button class="btn block" type="submit">${up ? 'Create account' : 'Sign in'}</button>
+        <a href="${up ? '#/signin' : '#/signup'}" style="text-align:center;font-size:14px;font-weight:600">${up ? 'Already have an account? Sign in' : 'New here? Create an account'}</a>
+      </form></div>`;
+  }
+
+  // =====================================================================
+  // Shell + router
+  // =====================================================================
+  const NAV = [['', 'home', 'Dashboard'], ['jobs', 'jobs', 'Jobs'], ['map', 'map', 'Map'], ['todo', 'todo', 'To-do'], ['people', 'people', 'People']];
+
+  function shell(section, inner) {
+    const tasks = allTasks();
+    const od = tasks.filter((x) => x.overdue).length;
+    const v = viewer();
+    const asBar = ui.as && v ? `<div class="banner" style="background:${esc(v.color)};color:#fff">Viewing as ${esc(v.name)} (${esc(v.role)}) · <button data-act="viewas" data-v="" style="background:none;border:0;color:#fff;text-decoration:underline;font-weight:600;cursor:pointer">Back to me</button></div>` : '';
+    const navLink = (cls) => NAV.map(([k, ic, l]) => `<a href="#/${k}" class="${section === k ? 'on' : ''}"${section === k ? ' aria-current="page"' : ''}>${ico(ic, cls === 'side' ? 20 : 22)}<span>${l}</span>${k === 'todo' && od ? `<span class="badge">${od}</span>` : ''}</a>`).join('');
+    return `<div class="layout">
+      <aside class="side">${lockup()}<nav aria-label="Main">${navLink('side')}${isTeam() ? `<a href="#/updates" class="${section === 'updates' ? 'on' : ''}">${ico('mail', 20)}<span>Weekly updates</span></a>` : ''}</nav>
+        <div class="foot"><a href="#/more" class="row" style="color:#fff;text-decoration:none;gap:10px">${av(v || me(), 32)}<span class="grow"><span style="display:block;font-weight:600" class="ellip">${esc(v ? v.name : user.name)}</span><span style="font-size:12px;color:#bdbdbd">${esc(v ? v.role : '')}</span></span></a></div></aside>
+      <div class="main">
+        <header class="top">${lockup()}<a href="#/more" aria-label="Account">${av(v || me(), 34)}</a></header>
+        ${!SHARED ? '<div class="banner">Test mode · saved in this browser only</div>' : ''}${asBar}
+        <main class="content" id="content">${inner}</main>
+      </div>
+      <nav class="tabbar" aria-label="Main">${navLink('tab')}</nav>
+    </div>
+    ${ui.photo ? lightbox() : ''}`;
+  }
+
+  function lightbox() {
+    let ph = null, jb = null;
+    W.jobs.forEach((j) => (j.photos || []).forEach((p) => { if (p.id === ui.photo) { ph = p; jb = j; } }));
+    if (!ph) return '';
+    const by = person(ph.personId);
+    return `<div class="lightbox" role="dialog" aria-label="Photo" data-act="closephoto">
+      <img data-photo="${ph.id}" alt="${esc(ph.caption || 'Site photo')}">
+      <div style="text-align:center"><b>${esc(ph.caption || 'Site photo')}</b><div style="font-size:13px;color:#ccc">${esc(jb.name)} · ${esc(ph.stage || '')} · ${fmtTs(ph.at)}${by ? ' · ' + esc(by.name) : ''}</div></div>
+      <button class="btn line" data-act="closephoto">${ico('x', 18)}Close</button></div>`;
+  }
+
   async function render() {
-    clearInterval(tickTimer);
+    if (mapInst) { mapInst.remove(); mapInst = null; }
     const h = location.hash || '#/';
-    if (!user) {
-      $app.innerHTML = screenWelcome(h === '#/signin' ? 'signin' : 'signup');
-      return;
-    }
-    if (!S.address && h !== '#/setup') { location.hash = '#/setup'; return; }
+    if (!user) { $app.innerHTML = pageAuth(h === '#/signin' ? 'signin' : 'signup'); return; }
+    const parts = h.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
+    const [a, b, c, d] = parts;
+    let section = a || '';
     let html;
-    if (h === '#/setup') html = screenSetup();
-    else if (h === '#/options') html = screenOptions();
-    else if (h === '#/live') { html = screenLive(); tickTimer = setInterval(render, 5000); }
-    else if (h === '#/consent') html = screenConsent();
-    else if (h === '#/activity') html = screenActivity();
-    else if (h === '#/materials') html = screenUpload();
-    else if (h === '#/materials/stages') html = screenStages();
-    else if (h.startsWith('#/materials/deliver/')) html = screenDeliver(Number(h.split('/').pop()));
-    else html = screenHome();
-    const focused = document.activeElement && document.activeElement.id;
-    $app.innerHTML = html;
-    if (focused === 'q') { const q = document.getElementById('q'); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+    if (!a) html = pageDashboard();
+    else if (a === 'jobs' && b === 'new') { html = isTeam() ? pageJobForm(null) : pageJobs(); section = 'jobs'; }
+    else if (a === 'jobs') html = pageJobs();
+    else if (a === 'job' && c === 'edit') { html = pageJobForm(job(b)); section = 'jobs'; }
+    else if (a === 'job' && c === 'book' && d) { ui.pick = d; html = pageJob(job(b), 'book'); section = 'jobs'; }
+    else if (a === 'job') { html = pageJob(job(b), c || ''); section = 'jobs'; }
+    else if (a === 'map') html = pageMap(b);
+    else if (a === 'todo') html = pageTodo(b);
+    else if (a === 'updates') html = pageUpdates();
+    else if (a === 'people' && b === 'new') { html = pagePersonForm(null); section = 'people'; }
+    else if (a === 'people') html = pagePeople();
+    else if (a === 'person' && c === 'edit') { html = pagePersonForm(person(b)); section = 'people'; }
+    else if (a === 'person') { html = pagePerson(person(b)); section = 'people'; }
+    else if (a === 'more') html = pageMore();
+    else html = pageDashboard();
+    const f = document.activeElement;
+    const fid = f && f.id; const caret = f && f.selectionStart;
+    $app.innerHTML = shell(section, html);
+    if (fid === 'q') { const el = document.getElementById('q'); if (el) { el.focus(); try { el.setSelectionRange(caret, caret); } catch (e) { /* n/a */ } } }
+    if (a === 'map') mountMap();
+    document.querySelectorAll('img[data-photo]').forEach(async (img) => { const v = await Photos.get(img.dataset.photo); if (v) img.src = v; });
   }
 
-  function openService(svc) {
-    ui.picked = svc; ui.option = 0;
-    if (!S.bookings[svc]) return go('#/options');
-    if (svc === 'Transport' || svc === 'Crane') return go('#/live');
-    if (svc === 'Consent') return go('#/consent');
-    go('#/activity');
+  // =====================================================================
+  // Actions
+  // =====================================================================
+  function markTask(key, jobId) {
+    if (key.startsWith('g:')) { const t = (W.tasks || []).find((x) => x.id === key.slice(2)); if (t) t.done = Date.now(); return; }
+    const j = job(jobId); if (!j) return;
+    if (key.startsWith('m:')) { const t = j.tasks.find((x) => x.id === key.slice(2)); if (t) t.done = Date.now(); return; }
+    if (key.startsWith('update:')) { const u = j.updates.find((x) => x.weekOf === key.slice(7)); if (u) { u.sent = true; u.sentAt = Date.now(); } }
+    j.done[key] = Date.now();
   }
 
-  // ---------- Events ----------
   $app.addEventListener('click', async (e) => {
-    const t = e.target.closest('[data-go],[data-act],[data-pick],[data-pick-go],[data-opt],[data-tab],[data-row],[data-deliver],[data-slot],[data-send]');
+    const t = e.target.closest('[data-act]');
     if (!t) return;
-    const d = t.dataset;
-    if (d.act === 'closemenu' && e.target !== t) return; // clicks inside the panel
-    if (d.go) { ui.menu = false; return go(d.go); }
-    if (d.pick) { ui.picked = d.pick; return render(); }
-    if (d.pickGo) { ui.picked = d.pickGo; ui.option = 0; return go('#/options'); }
-    if (d.opt) { ui.option = Number(d.opt); return render(); }
-    if (d.tab) { ui.tab = Number(d.tab); return render(); }
-    if (d.row) return openService(d.row);
-    if (d.deliver) { ui.slot = 0; return go('#/materials/deliver/' + d.deliver); }
-    if (d.slot) { ui.slot = Number(d.slot); return render(); }
-    if (d.send) {
-      const i = Number(d.send);
-      let slot = ['Tomorrow morning · ' + dayLabel(1) + ' 7–9am', '', 'Today · next truck'][ui.slot];
-      if (ui.slot === 1) {
-        const v = document.getElementById('pickDay').value;
-        if (!v) return toast('Pick a delivery day first.');
-        slot = new Date(v + 'T00:00').toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric', month: 'short' });
-      }
-      S.stages[i] = 'delivered';
-      if (i + 1 < STAGES.length && S.stages[i + 1] === 'later') S.stages[i + 1] = 'ready';
-      S.deliveries.push({ stage: STAGES[i][0], slot, at: Date.now() });
-      await commit();
-      return toast(STAGES[i][0] + ' stage booked for delivery.');
-    }
-    switch (d.act) {
-      case 'menu': ui.menu = true; return render();
-      case 'closemenu': ui.menu = false; return render();
-      case 'choose': return openService(ui.picked);
-      case 'book': {
-        const o = optionsFor(ui.picked)[ui.option];
-        S.bookings[ui.picked] = { option: o.name, when: o.when, at: Date.now() };
-        await commit();
-        toast(TITLE[ui.picked] + ' booked.');
-        return openService(ui.picked);
-      }
-      case 'call': return toast('Driver calling comes once transport partners are connected.');
-      case 'message': return toast('Messaging comes once consent handlers are connected.');
-      case 'share': {
-        const text = 'Track the delivery to ' + S.address + ' on New Company';
-        if (navigator.share) { try { await navigator.share({ title: 'New Company', text, url: location.href.split('#')[0] }); } catch (err) { /* cancelled */ } }
-        else { try { await navigator.clipboard.writeText(location.href.split('#')[0]); toast('Link copied.'); } catch (err) { toast(text); } }
-        return;
-      }
-      case 'reset': S = Object.assign(freshState(), { address: S.address, stage: S.stage }); ui.menu = false; await commit(); return toast('Test data cleared.');
-      case 'signout': ui.menu = false; await Auth.signOut(); user = null; S = freshState(); return go('#/signin');
+    const dd = t.dataset;
+    const j = dd.job && job(dd.job);
+    switch (dd.act) {
+      case 'closephoto': if (e.target === t || t.tagName === 'BUTTON') { ui.photo = null; render(); } return;
+      case 'photo': ui.photo = dd.id; return render();
+      case 'jobfilter': ui.jobFilter = dd.v; return render();
+      case 'role': ui.roleFilter = dd.v; return render();
+      case 'pick': ui.pick = dd.k; ui.opt = 0; return go('#/job/' + dd.job + '/book/' + encodeURIComponent(dd.k));
+      case 'opt': ui.opt = Number(dd.i); return render();
+      case 'urgent': ui.urgent = dd.v === '1'; return render();
+      case 'sched': ui.schedule = dd.v || null; return render();
+      case 'tick': markTask(dd.key, dd.job); return commit('Done.');
+      case 'svcdone': j.services[dd.k].status = 'done'; j.services[dd.k].doneAt = Date.now(); return commit(SVC[dd.k].title + ' marked done.');
+      case 'svcundo': j.services[dd.k].status = 'booked'; delete j.services[dd.k].doneAt; return commit();
+      case 'unbook': delete j.services[dd.k]; return commit(SVC[dd.k].title + ' booking cancelled.');
+      case 'delivered': { const d = j.deliveries.find((x) => x.id === dd.id); d.status = 'delivered'; d.deliveredAt = Date.now(); return commit('Marked delivered.'); }
+      case 'extra': { const x = j.extras.find((y) => y.id === dd.id); x.status = dd.v; x.decidedAt = Date.now(); return commit(dd.v === 'approved' ? 'Extra approved.' : 'Extra declined.'); }
+      case 'sent': { const u = j.updates.find((x) => x.id === dd.id); u.sent = true; u.sentAt = Date.now(); j.done['update:' + u.weekOf] = Date.now(); await Data.save(W); if (t.tagName !== 'A') render(); else setTimeout(render, 300); return; }
+      case 'copy': { const u = j.updates.find((x) => x.id === dd.id); try { await navigator.clipboard.writeText(u.text); toast('Update copied.'); } catch (err) { toast('Couldn\'t copy. Select the text instead.'); } return; }
+      case 'regen': { const wk = mondayOf(); j.updates = j.updates.filter((u) => u.weekOf !== wk); j.updates.unshift({ id: uid(), weekOf: wk, at: Date.now(), text: buildUpdate(j), sent: false }); delete j.done['update:' + wk]; return commit('Update rewritten.'); }
+      case 'examples': ensureMe(); loadExamples(); return commit('Example jobs loaded.');
+      case 'clearall': { const m = me(); W.jobs = []; W.people = m ? [m] : []; W.tasks = []; ui.as = null; return commit('Cleared.'); }
+      case 'deljob': W.jobs = W.jobs.filter((x) => x.id !== dd.id); await Data.save(W); toast('Job deleted.'); return go('#/jobs');
+      case 'delperson': W.people = W.people.filter((x) => x.id !== dd.id); await Data.save(W); toast('Removed.'); return go('#/people');
+      case 'viewas': ui.as = dd.v || null; toast(ui.as ? 'Viewing as ' + person(ui.as).name : 'Back to your view'); return go('#/');
+      case 'signout': await Auth.signOut(); user = null; W = null; ui.as = null; return go('#/signin');
     }
   });
 
   $app.addEventListener('input', (e) => {
-    if (e.target.id === 'q') { ui.query = e.target.value; render(); }
+    if (e.target.dataset.bind === 'q') { ui.q = e.target.value; render(); }
   });
 
   $app.addEventListener('change', async (e) => {
-    if (e.target.id === 'planFile' && e.target.files.length) {
-      const files = Array.from(e.target.files);
-      const first = files[0];
-      const deliverTo = (document.getElementById('deliverTo') || {}).value || S.address;
-      S.plans = { name: first.name, ext: (first.name.split('.').pop() || 'FILE').toUpperCase().slice(0, 4), size: files.reduce((a, f) => a + f.size, 0), count: files.length, at: Date.now(), deliverTo };
-      if (S.stages.every((s) => s === 'later')) S.stages[0] = 'ready';
-      await commit();
-      toast('Plans uploaded.');
+    const el = e.target;
+    if (el.id === 'va') { ui.as = el.value || null; return go('#/'); }
+    if (el.id === 'jcu') { const fs = document.getElementById('newCust'); if (fs) fs.style.display = el.value === '__new' || !el.value ? 'grid' : 'none'; }
+    if (el.id === 'photoFile') { const n = el.files.length; document.getElementById('photoCount').textContent = n ? n + ' photo' + (n > 1 ? 's' : '') + ' ready. Press Upload.' : ''; }
+    if (el.id === 'planFile' && el.files.length) {
+      const j = job(el.dataset.job); const files = Array.from(el.files);
+      j.plans = { name: files[0].name, ext: (files[0].name.split('.').pop() || 'FILE').toUpperCase().slice(0, 4), size: files.reduce((a, f) => a + f.size, 0), count: files.length, at: Date.now() };
+      return commit('Plans uploaded.');
     }
-    if (e.target.id === 'deliverTo' && S.plans) { S.plans.deliverTo = e.target.value; await Data.save(user, S); }
   });
 
   $app.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const err = document.getElementById('err');
-    const btn = e.target.querySelector('button[type=submit]');
-    if (e.target.id === 'authForm') {
+    const form = e.target;
+    const fd = new FormData(form);
+    const g = (k) => String(fd.get(k) || '').trim();
+    const err = form.querySelector('#err');
+    const btn = form.querySelector('button[type=submit]');
+
+    if (form.id === 'authForm') {
       const nameEl = document.getElementById('name');
       const name = nameEl ? nameEl.value.trim() : '';
       const email = document.getElementById('email').value.trim().toLowerCase();
@@ -582,37 +1159,102 @@
       if (pw.length < 6) return (err.textContent = 'Password needs at least 6 characters.');
       btn.disabled = true; err.textContent = '';
       try {
-        if (nameEl) {
-          const r = await Auth.signUp(name, email, pw);
-          if (r.confirm) { btn.disabled = false; err.style.color = '#15803D'; err.textContent = 'Check your email to confirm your account, then sign in.'; return; }
-        } else {
-          await Auth.signIn(email, pw);
-        }
+        if (nameEl) { const r = await Auth.signUp(name, email, pw); if (r.confirm) { btn.disabled = false; err.style.color = 'var(--ok)'; err.textContent = 'Check your email to confirm, then sign in.'; return; } }
+        else await Auth.signIn(email, pw);
         await boot();
-      } catch (ex) {
-        btn.disabled = false;
-        err.textContent = ex.message || 'Something went wrong. Try again.';
-      }
+      } catch (ex) { btn.disabled = false; err.textContent = ex.message || 'Something went wrong.'; }
+      return;
     }
-    if (e.target.id === 'setupForm') {
-      const addr = document.getElementById('addr').value.trim();
-      if (!addr) return (err.textContent = 'Enter the site address.');
-      S.address = addr; S.stage = document.getElementById('stage').value; ui.picked = S.stage;
-      await Data.save(user, S);
-      go('#/home');
+
+    const kind = form.dataset.form;
+    const j = form.dataset.job && job(form.dataset.job);
+
+    if (kind === 'job') {
+      const name = g('name'), address = g('address');
+      if (!name || !address) return (err.textContent = 'Add a job name and site address.');
+      let customerId = g('customerId');
+      if (customerId === '__new' || !customerId) {
+        if (g('cname')) { const p = { id: uid(), name: g('cname'), role: 'Customer', company: '', phone: g('cphone'), email: g('cemail'), color: nextColor(), notes: '', trades: [] }; W.people.push(p); customerId = p.id; }
+        else customerId = '';
+      }
+      const scope = SERVICES.map((s) => s.k).filter((k) => fd.getAll('scope').includes(k));
+      let jb = form.dataset.id && job(form.dataset.id);
+      const moved = !jb || jb.address !== address;
+      if (!jb) { jb = { id: uid(), services: {}, deliveries: [], extras: [], payments: [], photos: [], updates: [], tasks: [], done: {}, plans: null, createdAt: Date.now() }; W.jobs.push(jb); }
+      Object.assign(jb, { name, address, contract: num(g('contract')), customerId, builderId: g('builderId'), scope });
+      btn.disabled = true;
+      if (moved) { btn.textContent = 'Finding it on the map…'; const ll = await geocode(address); jb.lat = ll ? ll.lat : null; jb.lng = ll ? ll.lng : null; }
+      ensureUpdates();
+      await Data.save(W);
+      toast(form.dataset.id ? 'Job saved.' : 'Job created.' + (jb.lat == null ? ' Couldn\'t place it on the map.' : ''));
+      return go('#/job/' + jb.id);
+    }
+    if (kind === 'book') {
+      const k = form.dataset.k; const o = optionsFor(k)[ui.opt];
+      const prev = j.services[k];
+      j.services[k] = { status: prev && prev.status === 'done' ? 'done' : 'booked', option: o[0], date: g('date'), personId: g('personId'), cost: num(g('cost')), at: Date.now(), doneAt: prev && prev.doneAt };
+      if (!j.scope.includes(k)) j.scope = SERVICES.map((s) => s.k).filter((x) => x === k || j.scope.includes(x));
+      await Data.save(W); toast(SVC[k].title + ' booked for ' + fmtD(g('date')) + '.');
+      ui.pick = null; return go('#/job/' + j.id);
+    }
+    if (kind === 'sched') {
+      const name = form.dataset.v;
+      let d = j.deliveries.find((x) => x.items === name && !x.urgent);
+      if (!d) { d = { id: uid(), items: name, urgent: false, status: 'scheduled', at: Date.now() }; j.deliveries.push(d); }
+      Object.assign(d, { date: g('date'), window: g('window'), cost: fd.has('cost') ? num(g('cost')) : (d.cost || 0) });
+      ui.schedule = null; return commit(name + ' delivery set for ' + fmtD(d.date) + '.');
+    }
+    if (kind === 'urgent') {
+      j.deliveries.push({ id: uid(), items: g('items'), date: today(), window: 'ASAP', urgent: true, status: 'scheduled', cost: 0, at: Date.now() });
+      ui.urgent = false; return commit('Urgent delivery sent. Connect has been told.');
+    }
+    if (kind === 'photos') {
+      const files = Array.from(document.getElementById('photoFile').files || []);
+      if (!files.length) return toast('Choose some photos first.');
+      btn.disabled = true; btn.textContent = 'Uploading…';
+      const v = viewer();
+      let ok = 0;
+      for (const f of files) {
+        try { const id = uid(); await Photos.put(id, await compress(f)); j.photos.push({ id, at: Date.now(), caption: g('caption'), stage: g('stage'), personId: v ? v.id : null }); ok++; }
+        catch (ex) { console.warn('[Connect] photo', ex); }
+      }
+      return commit(ok + ' photo' + (ok === 1 ? '' : 's') + ' uploaded.' + (ok < files.length ? ' Some couldn\'t be read.' : ''));
+    }
+    if (kind === 'extra') { j.extras.push({ id: uid(), desc: g('desc'), amount: num(g('amount')), status: 'pending', at: Date.now() }); return commit('Extra sent to the customer to approve.'); }
+    if (kind === 'payment') { j.payments.push({ id: uid(), amount: num(g('amount')), date: g('date') || today(), note: g('note') }); return commit('Payment recorded.'); }
+    if (kind === 'task') { j.tasks.push({ id: uid(), text: g('text'), personId: g('personId'), due: g('due') || null, at: Date.now() }); return commit('To-do added.'); }
+    if (kind === 'gtask') {
+      const jid = g('jobId');
+      const t = { id: uid(), text: g('text'), personId: g('personId'), due: g('due') || null, at: Date.now() };
+      if (jid) job(jid).tasks.push(t); else (W.tasks = W.tasks || []).push(t);
+      return commit('To-do added.');
+    }
+    if (kind === 'person') {
+      if (!g('name')) return (err.textContent = 'Add a name.');
+      let p = form.dataset.id && person(form.dataset.id);
+      if (!p) { p = { id: uid() }; W.people.push(p); }
+      Object.assign(p, { name: g('name'), role: g('role'), company: g('company'), phone: g('phone'), email: g('email'), notes: g('notes'), trades: fd.getAll('trades'), color: g('color') || p.color || nextColor() });
+      await Data.save(W); toast('Saved.');
+      return go('#/person/' + p.id);
     }
   });
 
-  window.addEventListener('hashchange', render);
+  window.addEventListener('hashchange', () => { ui.q = ''; ui.urgent = false; ui.schedule = null; render(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui.photo) { ui.photo = null; render(); } });
 
   async function boot() {
     user = await Auth.current();
-    S = user ? await Data.load(user) : freshState();
-    if (user && S.stage && SERVICES.includes(S.stage)) ui.picked = S.stage;
-    if (user && ['#/', '', '#/signin', '#/signup'].includes(location.hash)) { location.hash = S.address ? '#/home' : '#/setup'; return; }
+    if (user) {
+      W = (await Data.load()) || blankWs();
+      W.jobs = W.jobs || []; W.people = W.people || [];
+      W.jobs.forEach((j) => { ['deliveries', 'extras', 'payments', 'photos', 'updates', 'tasks'].forEach((k) => { j[k] = j[k] || []; }); j.done = j.done || {}; j.services = j.services || {}; j.scope = j.scope || SERVICES.map((s) => s.k); });
+      const hadMe = !!me();
+      ensureMe();
+      if (ensureUpdates() || !hadMe) await Data.save(W);
+      if (['#/signin', '#/signup'].includes(location.hash)) { location.hash = '#/'; return; }
+    }
     render();
   }
-
   if (sb) sb.auth.onAuthStateChange((evt) => { if (evt === 'SIGNED_IN' && !user) boot(); });
   boot();
 })();
